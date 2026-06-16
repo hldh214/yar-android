@@ -1,0 +1,378 @@
+package dev.yar.android.ui
+
+import android.content.Intent
+import android.util.Log
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import dev.yar.android.data.HttpRadikoClient
+import dev.yar.android.data.RecentStationsStore
+import dev.yar.android.domain.NoaItem
+import dev.yar.android.domain.Program
+import dev.yar.android.domain.Region
+import dev.yar.android.domain.Station
+import dev.yar.android.playback.YarMediaLibraryService
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+@Composable
+fun YarApp(
+    showNotificationPermissionPrompt: Boolean = false,
+    onRequestNotificationPermission: () -> Unit = {},
+) {
+    val context = LocalContext.current
+    val client = remember { HttpRadikoClient() }
+    val recentStationsStore = remember { RecentStationsStore(context) }
+    val scope = rememberCoroutineScope()
+    val playerState = rememberYarPlayerState()
+
+    var regions by remember { mutableStateOf<List<Region>>(emptyList()) }
+    var recentStationIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    var selectedRegion by remember { mutableStateOf<Region?>(null) }
+    var selectedStation by remember { mutableStateOf<Station?>(null) }
+    var selectedDate by remember { mutableStateOf(broadcastDates().first()) }
+    var programs by remember { mutableStateOf<List<Program>>(emptyList()) }
+    var programsLoading by remember { mutableStateOf(false) }
+    var playingStation by remember { mutableStateOf<Station?>(null) }
+    var playingProgram by remember { mutableStateOf<Program?>(null) }
+    var playbackPrograms by remember { mutableStateOf<List<Program>>(emptyList()) }
+    var playbackSongs by remember { mutableStateOf<List<NoaItem>>(emptyList()) }
+    var songsLoading by remember { mutableStateOf(false) }
+    var pendingSeekPositionMs by remember { mutableStateOf<Long?>(null) }
+    var showPlayerDetails by remember { mutableStateOf(false) }
+    var playerDetailsOpenDragProgress by remember { mutableStateOf(0f) }
+    var showDetailsTimetable by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    val stationsById = regions.flatMap { it.stations }.associateBy { it.id }
+    val recentStations = remember(regions, recentStationIds) {
+        val byId = regions.flatMap { it.stations }.associateBy { it.id }
+        recentStationIds.mapNotNull { byId[it] }
+    }
+    val currentStationId = playerState.stationId ?: playingStation?.id
+    val currentPlayingStation = currentStationId?.let { stationsById[it] } ?: playingStation
+    val matchedPlayingProgram = playingProgram?.takeIf { program ->
+        (currentStationId == null || program.stationId == currentStationId) &&
+            (playerState.playbackStartTime == null || program.startTime == playerState.playbackStartTime)
+    }
+    val currentPlayingProgram = matchedPlayingProgram
+        ?: playerState.playbackStartTime?.let { startTime -> playbackPrograms.firstOrNull { it.startTime == startTime } }
+        ?: playbackPrograms.firstOrNull { it.isOnAir }
+    val songProgramStartTime = playerState.playbackStartTime ?: currentPlayingProgram?.startTime
+    val songProgramEndTime = playerState.playbackEndTime ?: currentPlayingProgram?.endTime
+    val currentSong = remember(playbackSongs, playerState.isLive, songProgramStartTime, playerState.positionMs) {
+        currentNoaItem(
+            songs = playbackSongs,
+            isLive = playerState.isLive,
+            programStartTime = songProgramStartTime,
+            positionMs = playerState.positionMs,
+        )
+    }
+    val playbackUiState = PlaybackUiState(
+        title = playerState.title ?: currentPlayingProgram?.title ?: currentPlayingStation?.name,
+        station = currentPlayingStation,
+        program = currentPlayingProgram,
+        artworkUrl = currentPlayingProgram?.imageUrl ?: currentSong?.imageUrl ?: playerState.artworkUrl ?: currentPlayingStation?.logoUrl,
+        stationLogoUrl = currentPlayingStation?.logoUrl,
+        currentSong = currentSong,
+        songs = playbackSongs,
+        songsLoading = songsLoading,
+        programs = programs,
+        isPlaying = playerState.isPlaying,
+        isLive = playerState.isLive,
+        positionMs = pendingSeekPositionMs ?: playerState.positionMs,
+        durationMs = playerState.durationMs,
+        isSeeking = pendingSeekPositionMs != null,
+    )
+
+    fun refreshRecentStations(stationId: String) {
+        recentStationsStore.record(stationId)
+        recentStationIds = recentStationsStore.getStationIds()
+    }
+
+    fun playLive(station: Station) {
+        refreshRecentStations(station.id)
+        selectedStation = station
+        selectedRegion = regions.firstOrNull { region -> region.stations.any { it.id == station.id } } ?: selectedRegion
+        val today = broadcastDates().first()
+        selectedDate = today
+        programs = emptyList()
+        programsLoading = true
+        playingStation = station
+        playingProgram = null
+        scope.launch {
+            val loadedPrograms = runCatching { client.getPrograms(station.id, today.value) }.getOrDefault(emptyList())
+            programs = loadedPrograms
+            playingProgram = loadedPrograms.firstOrNull { it.isOnAir }
+            programsLoading = false
+        }
+        context.startService(
+            Intent(context, YarMediaLibraryService::class.java)
+                .setAction(YarMediaLibraryService.ACTION_PLAY_LIVE)
+                .putExtra(YarMediaLibraryService.EXTRA_STATION_ID, station.id),
+        )
+    }
+
+    fun playTimefree(station: Station, program: Program) {
+        refreshRecentStations(station.id)
+        playingStation = station
+        playingProgram = program
+        context.startService(
+            Intent(context, YarMediaLibraryService::class.java)
+                .setAction(YarMediaLibraryService.ACTION_PLAY_TIMEFREE)
+                .putExtra(YarMediaLibraryService.EXTRA_STATION_ID, station.id)
+                .putExtra(YarMediaLibraryService.EXTRA_START_TIME, program.startTime)
+                .putExtra(YarMediaLibraryService.EXTRA_END_TIME, program.endTime),
+        )
+    }
+
+    fun pauseResume() {
+        val nextPlaying = !playerState.isPlaying
+        if (playerState.isLive) {
+            val stationId = playerState.stationId ?: playingStation?.id
+            if (nextPlaying && stationId != null) {
+                context.startService(
+                    Intent(context, YarMediaLibraryService::class.java)
+                        .setAction(YarMediaLibraryService.ACTION_PLAY_LIVE)
+                        .putExtra(YarMediaLibraryService.EXTRA_STATION_ID, stationId),
+                )
+            } else {
+                playerState.controller?.stop() ?: context.startService(
+                    Intent(context, YarMediaLibraryService::class.java).setAction(YarMediaLibraryService.ACTION_STOP),
+                )
+            }
+        } else {
+            val controller = playerState.controller
+            if (controller != null) {
+                if (nextPlaying) controller.play() else controller.pause()
+            } else {
+                context.startService(
+                    Intent(context, YarMediaLibraryService::class.java).setAction(
+                        if (nextPlaying) YarMediaLibraryService.ACTION_RESUME else YarMediaLibraryService.ACTION_PAUSE,
+                    ),
+                )
+            }
+        }
+    }
+
+    fun seekTimefree(seekPositionMs: Long) {
+        pendingSeekPositionMs = seekPositionMs.coerceIn(0L, playerState.durationMs.coerceAtLeast(0L))
+        context.startService(
+            Intent(context, YarMediaLibraryService::class.java)
+                .setAction(YarMediaLibraryService.ACTION_SEEK_TIMEFREE)
+                .putExtra(YarMediaLibraryService.EXTRA_SEEK_SECONDS, seekPositionMs / 1000L),
+        )
+    }
+
+    fun sendPlaybackAction(action: String) {
+        context.startService(Intent(context, YarMediaLibraryService::class.java).setAction(action))
+    }
+
+    LaunchedEffect(playerState.mediaId, playerState.positionMs, pendingSeekPositionMs) {
+        val pending = pendingSeekPositionMs
+        if (pending != null && playerState.positionMs >= pending - 1500L) {
+            pendingSeekPositionMs = null
+        }
+    }
+
+    LaunchedEffect(client) {
+        runCatching { client.getRegions() }
+            .onSuccess {
+                regions = it
+                selectedRegion = it.firstOrNull { region -> region.stations.any { station -> station.areaId == "JP13" } }
+                    ?: it.firstOrNull()
+            }
+            .onFailure {
+                Log.e("YarApp", "Failed to load stations", it)
+                error = "${it::class.simpleName}: ${it.message ?: "Failed to load stations"}"
+            }
+    }
+
+    LaunchedEffect(Unit) {
+        recentStationIds = recentStationsStore.getStationIds()
+    }
+
+    LaunchedEffect(playerState.stationId, playerState.mediaId) {
+        val stationId = playerState.stationId ?: return@LaunchedEffect
+        if (playingProgram?.stationId != stationId) {
+            playingProgram = null
+        }
+        val loadedPrograms = runCatching { client.getPrograms(stationId) }.getOrDefault(emptyList())
+        playbackPrograms = loadedPrograms
+        playingProgram = when {
+            playerState.playbackStartTime != null -> loadedPrograms.firstOrNull { it.startTime == playerState.playbackStartTime }
+            playerState.isLive -> loadedPrograms.firstOrNull { it.isOnAir }
+            else -> playingProgram?.takeIf { it.stationId == stationId }
+        }
+    }
+
+    LaunchedEffect(playerState.stationId, regions) {
+        val stationId = playerState.stationId ?: return@LaunchedEffect
+        val station = stationsById[stationId] ?: return@LaunchedEffect
+        playingStation = station
+        selectedStation = station
+        selectedRegion = regions.firstOrNull { region -> region.stations.any { it.id == stationId } } ?: selectedRegion
+    }
+
+    LaunchedEffect(playerState.stationId, playerState.mediaId, playerState.isLive, songProgramStartTime, songProgramEndTime) {
+        val stationId = playerState.stationId ?: return@LaunchedEffect
+        if (playerState.isLive) {
+            while (true) {
+                songsLoading = true
+                playbackSongs = runCatching { client.getLatestNoaItems(stationId) }.getOrDefault(emptyList())
+                songsLoading = false
+                delay(10_000)
+            }
+        } else if (!songProgramStartTime.isNullOrBlank() && !songProgramEndTime.isNullOrBlank()) {
+            songsLoading = true
+            playbackSongs = runCatching { client.getNoaItems(stationId, songProgramStartTime, songProgramEndTime) }.getOrDefault(emptyList())
+            songsLoading = false
+        } else {
+            playbackSongs = emptyList()
+            songsLoading = false
+        }
+    }
+
+    YarTheme {
+        YarBackground {
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val horizontalPadding = if (maxWidth < 600.dp) 16.dp else 24.dp
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = horizontalPadding, vertical = 12.dp)
+                        .windowInsetsPadding(WindowInsets.navigationBars),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    HomeHeader()
+                    if (showNotificationPermissionPrompt) {
+                        NotificationPermissionCard(onRequestPermission = onRequestNotificationPermission)
+                    }
+                    BrowserScreen(
+                        state = BrowserUiState(
+                            regions = regions,
+                            recentStations = recentStations,
+                            selectedRegion = selectedRegion,
+                            selectedStation = selectedStation,
+                            selectedDate = selectedDate,
+                            programs = programs,
+                            programsLoading = programsLoading,
+                            error = error,
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 360.dp),
+                        onRegionSelected = { selectedRegion = it },
+                        onStationSelected = { playLive(it) },
+                        onDateSelected = { dateOption ->
+                            selectedDate = dateOption
+                            programs = emptyList()
+                            programsLoading = true
+                            selectedStation?.let { station ->
+                                scope.launch {
+                                    programs = runCatching { client.getPrograms(station.id, dateOption.value) }
+                                        .getOrDefault(emptyList())
+                                    programsLoading = false
+                                }
+                            } ?: run {
+                                programsLoading = false
+                            }
+                        },
+                        onProgramSelected = { station, program -> playTimefree(station, program) },
+                    )
+                    if (playingStation != null || playerState.title != null) {
+                        MiniPlayer(
+                            state = playbackUiState,
+                            onPauseResume = { pauseResume() },
+                            onSkipBack = { sendPlaybackAction(YarMediaLibraryService.ACTION_SKIP_BACK) },
+                            onSkipForward = { sendPlaybackAction(YarMediaLibraryService.ACTION_SKIP_FORWARD) },
+                            onOpenDetails = { showPlayerDetails = true },
+                            onOpenDragProgress = { playerDetailsOpenDragProgress = it },
+                        )
+                    }
+                }
+
+                PlayerDetailsOverlay(
+                    visible = showPlayerDetails || playerDetailsOpenDragProgress > 0f,
+                    opened = showPlayerDetails,
+                    openingDragProgress = playerDetailsOpenDragProgress,
+                    state = playbackUiState,
+                    timetableExpanded = showDetailsTimetable,
+                    onToggleTimetable = { showDetailsTimetable = !showDetailsTimetable },
+                    onDismiss = {
+                        showPlayerDetails = false
+                        playerDetailsOpenDragProgress = 0f
+                    },
+                    onPauseResume = { pauseResume() },
+                    onSeek = { seekTimefree(it) },
+                    onSkipBack = { sendPlaybackAction(YarMediaLibraryService.ACTION_SKIP_BACK) },
+                    onSkipForward = { sendPlaybackAction(YarMediaLibraryService.ACTION_SKIP_FORWARD) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeHeader() {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = "Yar",
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Black,
+            style = MaterialTheme.typography.headlineLarge,
+        )
+        Text(
+            text = "Native radiko listening, live and timefree.",
+            color = MutedText,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+}
+
+@Composable
+private fun NotificationPermissionCard(onRequestPermission: () -> Unit) {
+    GlassCard(modifier = Modifier.fillMaxWidth(), highlight = true) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("Playback notifications", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    text = "Show media controls in background and on lock screen.",
+                    color = MutedText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Button(onClick = onRequestPermission) {
+                Text("Allow")
+            }
+        }
+    }
+}
