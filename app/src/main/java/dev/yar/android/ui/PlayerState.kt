@@ -32,6 +32,7 @@ internal data class YarPlayerState(
     val mediaId: String?,
     val positionMs: Long,
     val durationMs: Long,
+    val isBuffering: Boolean,
 )
 
 @Composable
@@ -48,6 +49,7 @@ internal fun rememberYarPlayerState(): YarPlayerState {
     var playbackEndTime by remember { mutableStateOf<String?>(null) }
     var positionMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
+    var playbackState by remember { mutableStateOf(Player.STATE_IDLE) }
     var activeMediaId by remember { mutableStateOf<String?>(null) }
     var basePositionMs by remember { mutableStateOf(0L) }
     var baseRealtimeMs by remember { mutableStateOf(0L) }
@@ -70,6 +72,7 @@ internal fun rememberYarPlayerState(): YarPlayerState {
                 val attachedController = mediaController ?: return@addListener
                 controller = attachedController
                 isPlaying = attachedController.isPlaying
+                playbackState = attachedController.playbackState
                 isLive = attachedController.isCurrentMediaLive()
                 title = attachedController.mediaMetadata.title?.toString()
                 stationId = attachedController.currentMediaItem?.stationId()
@@ -82,6 +85,11 @@ internal fun rememberYarPlayerState(): YarPlayerState {
                     object : Player.Listener {
                         override fun onIsPlayingChanged(nextIsPlaying: Boolean) {
                             isPlaying = nextIsPlaying
+                            rebaseDisplayPosition(attachedController)
+                        }
+
+                        override fun onPlaybackStateChanged(playbackStateValue: Int) {
+                            playbackState = playbackStateValue
                             rebaseDisplayPosition(attachedController)
                         }
 
@@ -121,6 +129,7 @@ internal fun rememberYarPlayerState(): YarPlayerState {
             val mediaController = controller
             if (mediaController != null) {
                 isPlaying = mediaController.isPlaying
+                playbackState = mediaController.playbackState
                 durationMs = mediaController.displayDurationMs()
                 isLive = mediaController.isCurrentMediaLive()
                 val mediaId = mediaController.currentMediaItem?.mediaId
@@ -149,6 +158,7 @@ internal fun rememberYarPlayerState(): YarPlayerState {
         mediaId = activeMediaId,
         positionMs = positionMs,
         durationMs = durationMs,
+        isBuffering = playbackState == Player.STATE_BUFFERING,
     )
 }
 

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -41,6 +42,7 @@ internal data class BrowserUiState(
     val selectedDate: BroadcastDate,
     val programs: List<Program>,
     val programsLoading: Boolean,
+    val switchingTarget: PlaybackSwitchTarget?,
     val error: String?,
 )
 
@@ -131,7 +133,11 @@ private fun MobileBrowser(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        RecentStationsRail(stations = state.recentStations, onStationSelected = onStationSelected)
+        RecentStationsRail(
+            stations = state.recentStations,
+            switchingTarget = state.switchingTarget,
+            onStationSelected = onStationSelected,
+        )
         MobileBrowseTabs(
             selected = section,
             hasStation = state.selectedStation != null,
@@ -149,6 +155,7 @@ private fun MobileBrowser(
             )
             MobileBrowseSection.Stations -> StationList(
                 region = state.selectedRegion,
+                switchingTarget = state.switchingTarget,
                 modifier = Modifier.weight(1f),
                 onStationSelected = onStationSelected,
             )
@@ -157,6 +164,7 @@ private fun MobileBrowser(
                 selectedDate = state.selectedDate,
                 programs = state.programs,
                 programsLoading = state.programsLoading,
+                switchingTarget = state.switchingTarget,
                 modifier = Modifier.weight(1f),
                 onDateSelected = onDateSelected,
                 onProgramSelected = onProgramSelected,
@@ -181,7 +189,11 @@ private fun WideBrowser(
             modifier = Modifier.weight(0.9f),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            RecentStationsRail(stations = state.recentStations, onStationSelected = onStationSelected)
+            RecentStationsRail(
+                stations = state.recentStations,
+                switchingTarget = state.switchingTarget,
+                onStationSelected = onStationSelected,
+            )
             RegionList(
                 regions = state.regions,
                 selectedRegion = state.selectedRegion,
@@ -191,6 +203,7 @@ private fun WideBrowser(
         }
         StationList(
             region = state.selectedRegion,
+            switchingTarget = state.switchingTarget,
             modifier = Modifier.weight(1f),
             onStationSelected = onStationSelected,
         )
@@ -199,6 +212,7 @@ private fun WideBrowser(
             selectedDate = state.selectedDate,
             programs = state.programs,
             programsLoading = state.programsLoading,
+            switchingTarget = state.switchingTarget,
             modifier = Modifier.weight(1.1f),
             onDateSelected = onDateSelected,
             onProgramSelected = onProgramSelected,
@@ -234,6 +248,7 @@ private fun MobileBrowseTabs(
 @Composable
 private fun RecentStationsRail(
     stations: List<Station>,
+    switchingTarget: PlaybackSwitchTarget?,
     onStationSelected: (Station) -> Unit,
 ) {
     if (stations.isEmpty()) return
@@ -241,18 +256,23 @@ private fun RecentStationsRail(
         Text("Recent", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             items(stations.take(10), key = { it.id }) { station ->
-                RecentStationCard(station = station, onClick = { onStationSelected(station) })
+                RecentStationCard(
+                    station = station,
+                    loading = switchingTarget == PlaybackSwitchTarget.Live(station.id),
+                    enabled = switchingTarget == null,
+                    onClick = { onStationSelected(station) },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun RecentStationCard(station: Station, onClick: () -> Unit) {
+private fun RecentStationCard(station: Station, loading: Boolean, enabled: Boolean, onClick: () -> Unit) {
     Surface(
         modifier = Modifier
             .width(116.dp)
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled && !loading, onClick = onClick),
         shape = MaterialTheme.shapes.large,
         color = ElevatedPanelAlt,
         tonalElevation = 3.dp,
@@ -275,10 +295,17 @@ private fun RecentStationCard(station: Station, onClick: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
-                text = station.areaId,
+                text = if (loading) "Starting live..." else station.areaId,
                 color = MutedText,
                 style = MaterialTheme.typography.labelSmall,
             )
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
     }
 }
@@ -310,6 +337,7 @@ private fun RegionList(
 @Composable
 private fun StationList(
     region: Region?,
+    switchingTarget: PlaybackSwitchTarget?,
     modifier: Modifier = Modifier,
     onStationSelected: (Station) -> Unit,
 ) {
@@ -325,7 +353,12 @@ private fun StationList(
             )
         }
         items(region?.stations.orEmpty(), key = { it.id }) { station ->
-            StationRow(station = station, onClick = { onStationSelected(station) })
+            StationRow(
+                station = station,
+                loading = switchingTarget == PlaybackSwitchTarget.Live(station.id),
+                enabled = switchingTarget == null,
+                onClick = { onStationSelected(station) },
+            )
         }
     }
 }
@@ -336,6 +369,7 @@ private fun TimefreePrograms(
     selectedDate: BroadcastDate,
     programs: List<Program>,
     programsLoading: Boolean,
+    switchingTarget: PlaybackSwitchTarget?,
     modifier: Modifier = Modifier,
     onDateSelected: (BroadcastDate) -> Unit,
     onProgramSelected: (Station, Program) -> Unit,
@@ -361,7 +395,7 @@ private fun TimefreePrograms(
                             StatusPill(
                                 text = date.label,
                                 selected = date.value == selectedDate.value,
-                                modifier = Modifier.clickable { onDateSelected(date) },
+                                modifier = Modifier.clickable(enabled = switchingTarget == null) { onDateSelected(date) },
                             )
                         }
                     }
@@ -388,7 +422,12 @@ private fun TimefreePrograms(
                 )
             }
             else -> items(endedPrograms, key = { it.id }) { program ->
-                ProgramRow(program = program, onClick = { onProgramSelected(station, program) })
+                ProgramRow(
+                    program = program,
+                    loading = switchingTarget == PlaybackSwitchTarget.Timefree(station.id, program.startTime),
+                    enabled = switchingTarget == null,
+                    onClick = { onProgramSelected(station, program) },
+                )
             }
         }
     }
@@ -429,8 +468,8 @@ private fun RegionRow(region: Region, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun StationRow(station: Station, onClick: () -> Unit) {
-    ListSurface(onClick = onClick) {
+private fun StationRow(station: Station, loading: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    ListSurface(selected = loading, enabled = enabled || loading, onClick = if (loading) null else onClick) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -458,14 +497,21 @@ private fun StationRow(station: Station, onClick: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            StatusPill(text = "Live", color = LiveRed)
+            if (loading) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = LiveRed)
+                    StatusPill(text = "Starting", color = LiveRed)
+                }
+            } else {
+                StatusPill(text = "Live", color = LiveRed)
+            }
         }
     }
 }
 
 @Composable
-internal fun ProgramRow(program: Program, onClick: () -> Unit) {
-    ListSurface(onClick = onClick) {
+internal fun ProgramRow(program: Program, loading: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
+    ListSurface(selected = loading, enabled = enabled || loading, onClick = if (loading) null else onClick) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -485,7 +531,7 @@ internal fun ProgramRow(program: Program, onClick: () -> Unit) {
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.labelMedium,
                     )
-                    if (program.isTimefree) StatusPill(text = "TF")
+                    if (program.isTimefree) StatusPill(text = if (loading) "Loading" else "TF")
                 }
                 Text(
                     text = program.title.ifBlank { "Untitled program" },
@@ -503,6 +549,13 @@ internal fun ProgramRow(program: Program, onClick: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
+            }
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
         }
     }

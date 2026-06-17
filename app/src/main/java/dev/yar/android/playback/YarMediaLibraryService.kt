@@ -1,5 +1,6 @@
 package dev.yar.android.playback
 
+import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
@@ -13,6 +14,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.session.CommandButton
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.LibraryParams
@@ -21,6 +24,8 @@ import androidx.media3.session.MediaSession
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import dev.yar.android.MainActivity
+import dev.yar.android.R
 import dev.yar.android.data.HttpRadikoClient
 import dev.yar.android.data.RecentStationsStore
 import dev.yar.android.domain.Region
@@ -44,6 +49,11 @@ class YarMediaLibraryService : MediaLibraryService() {
         super.onCreate()
         client = HttpRadikoClient(this)
         recentStationsStore = RecentStationsStore(this)
+        val notificationProvider = DefaultMediaNotificationProvider.Builder(this)
+            .setChannelName(R.string.playback_notification_channel_name)
+            .build()
+        notificationProvider.setSmallIcon(R.drawable.ic_stat_yar)
+        setMediaNotificationProvider(notificationProvider)
         val exoPlayer = ExoPlayer.Builder(this).build()
         player = exoPlayer
         exoPlayer.addListener(
@@ -70,6 +80,7 @@ class YarMediaLibraryService : MediaLibraryService() {
                             .setDurationUs(durationMs * 1000L)
                             .build()
                         return state.buildUpon()
+                            .setAvailableCommands(timefreeCommands(state.availableCommands))
                             .setPlaylist(ImmutableList.of(itemData))
                             .setCurrentMediaItemIndex(0)
                             .setContentPositionMs(positionMs)
@@ -78,6 +89,11 @@ class YarMediaLibraryService : MediaLibraryService() {
                             .setSeekForwardIncrementMs(SKIP_SECONDS * 1000L)
                             .build()
                     }
+                }
+                if (playback is CurrentPlayback.Live) {
+                    return state.buildUpon()
+                        .setAvailableCommands(liveCommands(state.availableCommands))
+                        .build()
                 }
                 return state
             }
@@ -104,7 +120,10 @@ class YarMediaLibraryService : MediaLibraryService() {
             this,
             sessionPlayer,
             Callback(serviceScope, client, recentStationsStore, ::playStation, ::playTimefree),
-        ).build()
+        )
+            .setSessionActivity(sessionActivity())
+            .setMediaButtonPreferences(liveMediaButtons())
+            .build()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -179,10 +198,13 @@ class YarMediaLibraryService : MediaLibraryService() {
         val mediaSource = HlsMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
 
         player?.apply {
+            setSeekBackIncrementMs(SKIP_SECONDS * 1000L)
+            setSeekForwardIncrementMs(SKIP_SECONDS * 1000L)
             setMediaSource(mediaSource)
             prepare()
             playWhenReady = true
         }
+        session?.setMediaButtonPreferences(liveMediaButtons())
     }
 
     private suspend fun playTimefree(stationId: String, startTime: String, endTime: String, seekSeconds: Long = 0L) {
@@ -225,11 +247,56 @@ class YarMediaLibraryService : MediaLibraryService() {
         val mediaSource = HlsMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
 
         player?.apply {
+            setSeekBackIncrementMs(SKIP_SECONDS * 1000L)
+            setSeekForwardIncrementMs(SKIP_SECONDS * 1000L)
             setMediaSource(mediaSource)
             prepare()
             playWhenReady = true
         }
+        session?.setMediaButtonPreferences(timefreeMediaButtons())
     }
+
+    private fun sessionActivity(): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            action = Intent.ACTION_MAIN
+            addCategory(Intent.CATEGORY_LAUNCHER)
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        return PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    private fun liveMediaButtons(): List<CommandButton> = emptyList()
+
+    private fun timefreeMediaButtons(): List<CommandButton> = listOf(
+        compactButton(
+            icon = CommandButton.ICON_SKIP_BACK_30,
+            command = Player.COMMAND_SEEK_BACK,
+            label = "Back 30 seconds",
+            slot = CommandButton.SLOT_BACK,
+        ),
+        compactButton(
+            icon = CommandButton.ICON_SKIP_FORWARD_30,
+            command = Player.COMMAND_SEEK_FORWARD,
+            label = "Forward 30 seconds",
+            slot = CommandButton.SLOT_FORWARD,
+        ),
+    )
+
+    private fun compactButton(
+        icon: Int,
+        command: Int,
+        label: String,
+        slot: Int,
+    ): CommandButton = CommandButton.Builder(icon)
+        .setPlayerCommand(command)
+        .setDisplayName(label)
+        .setSlots(slot)
+        .build()
 
     private suspend fun skipBy(deltaSeconds: Long) {
         val playback = currentPlayback
@@ -306,6 +373,42 @@ class YarMediaLibraryService : MediaLibraryService() {
         timestamp.substring(10, 12).toInt(),
         timestamp.substring(12, 14).toInt(),
     ).atOffset(java.time.ZoneOffset.ofHours(9)).toInstant()
+
+    private fun liveCommands(commands: Player.Commands): Player.Commands = Player.Commands.Builder()
+        .addAll(commands)
+        .addAll(
+            Player.COMMAND_PLAY_PAUSE,
+            Player.COMMAND_PREPARE,
+            Player.COMMAND_STOP,
+            Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
+            Player.COMMAND_GET_TIMELINE,
+            Player.COMMAND_GET_METADATA,
+        )
+        .removeAll(
+            Player.COMMAND_SEEK_BACK,
+            Player.COMMAND_SEEK_FORWARD,
+            Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+            Player.COMMAND_SEEK_TO_MEDIA_ITEM,
+            Player.COMMAND_SEEK_TO_DEFAULT_POSITION,
+        )
+        .build()
+
+    private fun timefreeCommands(commands: Player.Commands): Player.Commands = Player.Commands.Builder()
+        .addAll(commands)
+        .addAll(
+            Player.COMMAND_PLAY_PAUSE,
+            Player.COMMAND_PREPARE,
+            Player.COMMAND_STOP,
+            Player.COMMAND_SEEK_BACK,
+            Player.COMMAND_SEEK_FORWARD,
+            Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+            Player.COMMAND_SEEK_TO_MEDIA_ITEM,
+            Player.COMMAND_SEEK_TO_DEFAULT_POSITION,
+            Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
+            Player.COMMAND_GET_TIMELINE,
+            Player.COMMAND_GET_METADATA,
+        )
+        .build()
 
     private class Callback(
         private val scope: CoroutineScope,

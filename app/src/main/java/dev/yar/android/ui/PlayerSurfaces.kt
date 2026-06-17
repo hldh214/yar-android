@@ -1,10 +1,9 @@
 package dev.yar.android.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -25,10 +24,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,13 +37,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import dev.yar.android.domain.NoaItem
 import dev.yar.android.domain.Program
@@ -59,12 +65,21 @@ internal data class PlaybackUiState(
     val songs: List<NoaItem>,
     val songsLoading: Boolean,
     val programs: List<Program>,
+    val stationPrograms: List<Program>,
     val isPlaying: Boolean,
     val isLive: Boolean,
     val positionMs: Long,
     val durationMs: Long,
     val isSeeking: Boolean,
+    val isBuffering: Boolean,
+    val switchingTarget: PlaybackSwitchTarget?,
+    val playbackError: String?,
 )
+
+internal sealed interface PlaybackSwitchTarget {
+    data class Live(val stationId: String) : PlaybackSwitchTarget
+    data class Timefree(val stationId: String, val startTime: String) : PlaybackSwitchTarget
+}
 
 @Composable
 internal fun MiniPlayer(
@@ -77,7 +92,8 @@ internal fun MiniPlayer(
     onOpenDragProgress: (Float) -> Unit,
 ) {
     var dragY by remember { mutableStateOf(0f) }
-    val openDragDistancePx = with(LocalDensity.current) { 340.dp.toPx() }
+    val openDragDistancePx = with(LocalDensity.current) { 260.dp.toPx() }
+    val busy = state.switchingTarget != null || state.isBuffering || state.isSeeking
 
     Surface(
         modifier = modifier
@@ -94,7 +110,7 @@ internal fun MiniPlayer(
                         onOpenDragProgress((-dragY / openDragDistancePx).coerceIn(0f, 1f))
                     },
                     onDragEnd = {
-                        if (-dragY > openDragDistancePx * 0.25f) onOpenDetails()
+                        if (-dragY > openDragDistancePx * 0.18f) onOpenDetails()
                         onOpenDragProgress(0f)
                         dragY = 0f
                     },
@@ -122,7 +138,11 @@ internal fun MiniPlayer(
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     InlineMetaRow {
                         StatusPill(
-                            text = if (state.isLive) "LIVE" else "TIMEFREE",
+                            text = when {
+                                busy -> "LOADING"
+                                state.isLive -> "LIVE"
+                                else -> "TIMEFREE"
+                            },
                             color = if (state.isLive) LiveRed else MaterialTheme.colorScheme.secondary,
                         )
                         state.station?.name?.let {
@@ -154,10 +174,17 @@ internal fun MiniPlayer(
                 MiniPlayerControls(
                     isPlaying = state.isPlaying,
                     isLive = state.isLive,
+                    busy = busy,
                     onPauseResume = onPauseResume,
                     onSkipBack = onSkipBack,
                     onSkipForward = onSkipForward,
                 )
+            }
+            if (busy) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+            state.playbackError?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
             }
             if (!state.isLive && state.durationMs > 0) {
                 Text(
@@ -178,6 +205,7 @@ internal fun MiniPlayer(
 private fun MiniPlayerControls(
     isPlaying: Boolean,
     isLive: Boolean,
+    busy: Boolean,
     onPauseResume: () -> Unit,
     onSkipBack: () -> Unit,
     onSkipForward: () -> Unit,
@@ -187,18 +215,24 @@ private fun MiniPlayerControls(
             Text(
                 text = "-30",
                 modifier = Modifier
-                    .clickable(onClick = onSkipBack)
+                    .clickable(enabled = !busy, onClick = onSkipBack)
                     .padding(8.dp),
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.labelMedium,
             )
         }
-        PlayerPrimaryButton(label = if (isPlaying) "II" else "▶", onClick = onPauseResume, compact = true)
+        PlayerPrimaryButton(
+            label = if (isPlaying) "II" else "▶",
+            onClick = onPauseResume,
+            compact = true,
+            enabled = !busy,
+            loading = busy,
+        )
         if (!isLive) {
             Text(
                 text = "+30",
                 modifier = Modifier
-                    .clickable(onClick = onSkipForward)
+                    .clickable(enabled = !busy, onClick = onSkipForward)
                     .padding(8.dp),
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.labelMedium,
@@ -220,50 +254,90 @@ internal fun PlayerDetailsOverlay(
     onSeek: (Long) -> Unit,
     onSkipBack: () -> Unit,
     onSkipForward: () -> Unit,
+    onPlayLive: (Station) -> Unit,
+    onPlayTimefree: (Station, Program) -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
     BackHandler(enabled = visible, onBack = onDismiss)
-    var dragY by remember { mutableStateOf(0f) }
-
-    AnimatedVisibility(
-        visible = visible,
-        enter = slideInVertically(animationSpec = tween(260), initialOffsetY = { it }),
-        exit = slideOutVertically(animationSpec = tween(220), targetOffsetY = { it }),
-    ) {
+    if (visible) {
         val density = LocalDensity.current
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val fullHeightPx = with(density) { maxHeight.toPx() }.coerceAtLeast(1f)
-            val openingOffsetPx = if (opened) 0f else fullHeightPx * (1f - openingDragProgress.coerceIn(0f, 1f))
-            val dismissOffsetPx = if (opened) dragY.coerceAtLeast(0f) else 0f
-            val offsetPx = openingOffsetPx + dismissOffsetPx
+            var dismissOffsetPx by remember { mutableStateOf(0f) }
+            var closing by remember { mutableStateOf(false) }
+            val scrollState = rememberScrollState()
+            val targetSheetOffset = when {
+                closing -> fullHeightPx
+                opened -> dismissOffsetPx.coerceAtLeast(0f)
+                else -> fullHeightPx * (1f - openingDragProgress.coerceIn(0f, 1f))
+            }
+            val sheetOffset = remember { Animatable(fullHeightPx) }
+            LaunchedEffect(targetSheetOffset, opened, openingDragProgress, dismissOffsetPx, closing) {
+                val isDraggingOpen = !opened && openingDragProgress > 0f
+                val isDraggingDismiss = opened && dismissOffsetPx > 0f
+                if (closing) {
+                    sheetOffset.animateTo(targetSheetOffset, tween(180))
+                    onDismiss()
+                    closing = false
+                } else if (isDraggingOpen || isDraggingDismiss) {
+                    sheetOffset.snapTo(targetSheetOffset)
+                } else {
+                    sheetOffset.animateTo(targetSheetOffset, tween(220))
+                }
+            }
+            val sheetAlpha = if (opened) 1f else openingDragProgress.coerceIn(0.15f, 1f)
+            val dismissThresholdPx = fullHeightPx * 0.16f
+            val nestedScrollConnection = remember(fullHeightPx, scrollState.value, opened) {
+                object : NestedScrollConnection {
+                    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                        if (!opened || source != NestedScrollSource.UserInput) return Offset.Zero
+                        val dragDelta = available.y
+                        if (dragDelta > 0f && scrollState.value == 0) {
+                            dismissOffsetPx = (dismissOffsetPx + dragDelta).coerceIn(0f, fullHeightPx)
+                            return Offset(0f, dragDelta)
+                        }
+                        if (dragDelta < 0f && dismissOffsetPx > 0f) {
+                            val consumed = dragDelta.coerceAtLeast(-dismissOffsetPx)
+                            dismissOffsetPx += consumed
+                            return Offset(0f, consumed)
+                        }
+                        return Offset.Zero
+                    }
+
+                    override suspend fun onPreFling(available: Velocity): Velocity {
+                        if (!opened || dismissOffsetPx <= 0f) return Velocity.Zero
+                        val shouldDismiss = dismissOffsetPx > dismissThresholdPx || available.y > 900f
+                        if (shouldDismiss) {
+                            closing = true
+                        }
+                        dismissOffsetPx = 0f
+                        return Velocity(0f, available.y)
+                    }
+                }
+            }
 
             Surface(
                 modifier = Modifier
                     .fillMaxSize()
-                    .offset { IntOffset(0, offsetPx.roundToInt()) }
-                    .alpha(if (opened) 1f else openingDragProgress.coerceIn(0.15f, 1f))
-                    .pointerInput(opened) {
-                        detectVerticalDragGestures(
-                            onDragStart = { dragY = 0f },
-                            onVerticalDrag = { _, amount -> if (opened) dragY = (dragY + amount).coerceAtLeast(0f) },
-                            onDragEnd = {
-                                if (opened && dragY > fullHeightPx * 0.18f) onDismiss()
-                                dragY = 0f
-                            },
-                            onDragCancel = { dragY = 0f },
-                        )
-                    },
+                    .offset { IntOffset(0, sheetOffset.value.roundToInt()) }
+                    .alpha(sheetAlpha)
+                    .nestedScroll(nestedScrollConnection),
                 color = MaterialTheme.colorScheme.background,
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 18.dp, vertical = 14.dp),
+                        .verticalScroll(scrollState)
+                        .padding(start = 18.dp, top = 14.dp, end = 18.dp, bottom = 28.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    PlayerSheetHandle(opened = opened, fullHeightPx = fullHeightPx, onDismiss = onDismiss, onDrag = { dragY = it })
-                    PlayerTopBar(state = state, onDismiss = onDismiss)
+                    PlayerSheetHandle(
+                        opened = opened,
+                        fullHeightPx = fullHeightPx,
+                        onDismiss = { closing = true },
+                        onDrag = { dismissOffsetPx = it },
+                    )
+                    PlayerTopBar(state = state, onDismiss = { closing = true })
                     PlaybackHero(state = state)
                     PlaybackControls(
                         isPlaying = state.isPlaying,
@@ -271,10 +345,20 @@ internal fun PlayerDetailsOverlay(
                         positionMs = state.positionMs,
                         durationMs = state.durationMs,
                         isSeeking = state.isSeeking,
+                        isBuffering = state.isBuffering,
+                        isSwitching = state.switchingTarget != null,
                         onPauseResume = onPauseResume,
                         onSeek = onSeek,
                         onSkipBack = onSkipBack,
                         onSkipForward = onSkipForward,
+                    )
+                    state.playbackError?.let {
+                        NoticeCard(title = "Playback issue", message = it)
+                    }
+                    StationPlaybackSwitch(
+                        state = state,
+                        onPlayLive = onPlayLive,
+                        onPlayTimefree = onPlayTimefree,
                     )
                     state.currentSong?.let { CurrentSongCard(song = it, isLive = state.isLive) }
                     SongsSection(
@@ -294,6 +378,157 @@ internal fun PlayerDetailsOverlay(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StationPlaybackSwitch(
+    state: PlaybackUiState,
+    onPlayLive: (Station) -> Unit,
+    onPlayTimefree: (Station, Program) -> Unit,
+) {
+    val station = state.station ?: return
+    val switchingTarget = state.switchingTarget
+    val timefreePrograms = remember(state.stationPrograms, state.program?.startTime, station.id) {
+        val candidates = state.stationPrograms
+            .filter { it.stationId == station.id && !it.isOnAir && it.endTime < currentRadikoTimestamp() }
+        val currentIndex = candidates.indexOfFirst { it.startTime == state.program?.startTime }
+        if (currentIndex >= 0) {
+            val fromIndex = (currentIndex - 2).coerceAtLeast(0)
+            candidates.drop(fromIndex).take(6)
+        } else {
+            candidates.asReversed().take(6)
+        }
+    }
+
+    GlassCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("${station.name} programs", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = if (state.isLive) "You are listening live. Choose a program below for timefree." else "You are listening to timefree. Return to live anytime.",
+                    color = MutedText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                if (state.isLive) {
+                    StatusPill(text = "Live now", color = LiveRed)
+                } else {
+                    val switchingToLive = switchingTarget == PlaybackSwitchTarget.Live(station.id)
+                    SwitchActionPill(
+                        text = if (switchingToLive) "Switching..." else "Back to Live",
+                        loading = switchingToLive,
+                        modifier = Modifier.clickable(enabled = switchingTarget == null) { onPlayLive(station) },
+                    )
+                }
+            }
+            switchingTarget?.let {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+            if (timefreePrograms.isNotEmpty()) {
+                LazyColumn(
+                    modifier = Modifier.height(178.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(timefreePrograms, key = { it.id }) { program ->
+                        QuickTimefreeRow(
+                            program = program,
+                            selected = !state.isLive && state.program?.startTime == program.startTime,
+                            loading = switchingTarget == PlaybackSwitchTarget.Timefree(station.id, program.startTime),
+                            enabled = switchingTarget == null,
+                            onClick = { onPlayTimefree(station, program) },
+                        )
+                    }
+                }
+            } else {
+                Text("Recent timefree programs are loading or unavailable.", color = MutedText, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SwitchActionPill(text: String, loading: Boolean, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.small,
+        color = LiveRed.copy(alpha = 0.16f),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp,
+                    color = LiveRed,
+                )
+            }
+            Text(text, color = LiveRed, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+@Composable
+private fun QuickTimefreeRow(
+    program: Program,
+    selected: Boolean,
+    loading: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    ListSurface(
+        selected = selected || loading,
+        enabled = enabled || loading || selected,
+        onClick = if (enabled && !selected && !loading) onClick else null,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PlaybackImage(
+                url = program.imageUrl,
+                label = program.title.ifBlank { "Program" },
+                modifier = Modifier.size(44.dp),
+                contentScale = ContentScale.Fit,
+            )
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "${formatRadikoTime(program.startTime)}-${formatRadikoTime(program.endTime)}",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    if (selected) StatusPill(text = "Now")
+                    if (loading) StatusPill(text = "Loading")
+                }
+                Text(
+                    text = program.title.ifBlank { "Untitled program" },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (program.performer.isNotBlank()) {
+                    Text(program.performer, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MutedText, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
         }
     }
@@ -419,6 +654,8 @@ private fun PlaybackControls(
     positionMs: Long,
     durationMs: Long,
     isSeeking: Boolean,
+    isBuffering: Boolean,
+    isSwitching: Boolean,
     onPauseResume: () -> Unit,
     onSeek: (Long) -> Unit,
     onSkipBack: () -> Unit,
@@ -426,6 +663,7 @@ private fun PlaybackControls(
 ) {
     var draggingPositionMs by remember { mutableStateOf<Long?>(null) }
     val displayPositionMs = draggingPositionMs ?: positionMs
+    val controlsLocked = isSwitching || isSeeking || isBuffering
 
     GlassCard(modifier = Modifier.fillMaxWidth(), highlight = true) {
         Column(
@@ -438,19 +676,37 @@ private fun PlaybackControls(
                 horizontalArrangement = if (isLive) Arrangement.Center else Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (!isLive) PlayerSecondaryButton(label = "-30", onClick = onSkipBack)
-                PlayerPrimaryButton(label = if (isPlaying) "II" else "▶", onClick = onPauseResume)
-                if (!isLive) PlayerSecondaryButton(label = "+30", onClick = onSkipForward)
+                if (!isLive) PlayerSecondaryButton(label = "-30", onClick = onSkipBack, enabled = !controlsLocked)
+                PlayerPrimaryButton(
+                    label = if (isPlaying) "II" else "▶",
+                    onClick = onPauseResume,
+                    enabled = !isSwitching,
+                    loading = isSwitching,
+                )
+                if (!isLive) PlayerSecondaryButton(label = "+30", onClick = onSkipForward, enabled = !controlsLocked)
+            }
+
+            if (controlsLocked) {
+                Text(
+                    text = when {
+                        isSwitching -> "Switching playback..."
+                        isSeeking -> "Seeking..."
+                        else -> "Buffering audio..."
+                    },
+                    color = MutedText,
+                    style = MaterialTheme.typography.labelMedium,
+                )
             }
 
             if (!isLive && durationMs > 0) {
                 Slider(
                     value = displayPositionMs.toFloat().coerceIn(0f, durationMs.toFloat()),
-                    onValueChange = { draggingPositionMs = it.toLong() },
+                    onValueChange = { if (!controlsLocked) draggingPositionMs = it.toLong() },
                     onValueChangeFinished = {
-                        draggingPositionMs?.let(onSeek)
+                        if (!controlsLocked) draggingPositionMs?.let(onSeek)
                         draggingPositionMs = null
                     },
+                    enabled = !controlsLocked,
                     valueRange = 0f..durationMs.toFloat(),
                     modifier = Modifier.fillMaxWidth(),
                 )

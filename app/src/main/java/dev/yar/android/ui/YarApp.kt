@@ -11,8 +11,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +39,9 @@ import dev.yar.android.playback.YarMediaLibraryService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+private const val PLAYBACK_SWITCH_TIMEOUT_MS = 20_000L
+private const val PLAYBACK_SEEK_TIMEOUT_MS = 12_000L
+
 @Composable
 fun YarApp(
     showNotificationPermissionPrompt: Boolean = false,
@@ -63,9 +66,12 @@ fun YarApp(
     var playbackSongs by remember { mutableStateOf<List<NoaItem>>(emptyList()) }
     var songsLoading by remember { mutableStateOf(false) }
     var pendingSeekPositionMs by remember { mutableStateOf<Long?>(null) }
+    var pendingSeekMediaId by remember { mutableStateOf<String?>(null) }
+    var switchingTarget by remember { mutableStateOf<PlaybackSwitchTarget?>(null) }
     var showPlayerDetails by remember { mutableStateOf(false) }
     var playerDetailsOpenDragProgress by remember { mutableStateOf(0f) }
     var showDetailsTimetable by remember { mutableStateOf(false) }
+    var playbackError by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
 
     val stationsById = regions.flatMap { it.stations }.associateBy { it.id }
@@ -102,11 +108,15 @@ fun YarApp(
         songs = playbackSongs,
         songsLoading = songsLoading,
         programs = programs,
+        stationPrograms = playbackPrograms.ifEmpty { programs },
         isPlaying = playerState.isPlaying,
         isLive = playerState.isLive,
         positionMs = pendingSeekPositionMs ?: playerState.positionMs,
         durationMs = playerState.durationMs,
         isSeeking = pendingSeekPositionMs != null,
+        isBuffering = playerState.isBuffering,
+        switchingTarget = switchingTarget,
+        playbackError = playbackError,
     )
 
     fun refreshRecentStations(stationId: String) {
@@ -115,6 +125,8 @@ fun YarApp(
     }
 
     fun playLive(station: Station) {
+        playbackError = null
+        switchingTarget = PlaybackSwitchTarget.Live(station.id)
         refreshRecentStations(station.id)
         selectedStation = station
         selectedRegion = regions.firstOrNull { region -> region.stations.any { it.id == station.id } } ?: selectedRegion
@@ -138,6 +150,8 @@ fun YarApp(
     }
 
     fun playTimefree(station: Station, program: Program) {
+        playbackError = null
+        switchingTarget = PlaybackSwitchTarget.Timefree(station.id, program.startTime)
         refreshRecentStations(station.id)
         playingStation = station
         playingProgram = program
@@ -180,7 +194,9 @@ fun YarApp(
     }
 
     fun seekTimefree(seekPositionMs: Long) {
+        playbackError = null
         pendingSeekPositionMs = seekPositionMs.coerceIn(0L, playerState.durationMs.coerceAtLeast(0L))
+        pendingSeekMediaId = playerState.mediaId
         context.startService(
             Intent(context, YarMediaLibraryService::class.java)
                 .setAction(YarMediaLibraryService.ACTION_SEEK_TIMEFREE)
@@ -192,10 +208,57 @@ fun YarApp(
         context.startService(Intent(context, YarMediaLibraryService::class.java).setAction(action))
     }
 
-    LaunchedEffect(playerState.mediaId, playerState.positionMs, pendingSeekPositionMs) {
+    fun skipTimefree(deltaMs: Long) {
+        if (playerState.isLive || playerState.durationMs <= 0L) {
+            sendPlaybackAction(if (deltaMs < 0) YarMediaLibraryService.ACTION_SKIP_BACK else YarMediaLibraryService.ACTION_SKIP_FORWARD)
+            return
+        }
+        seekTimefree((playbackUiState.positionMs + deltaMs).coerceIn(0L, playerState.durationMs))
+    }
+
+    LaunchedEffect(playerState.mediaId, playerState.positionMs, pendingSeekPositionMs, pendingSeekMediaId) {
         val pending = pendingSeekPositionMs
-        if (pending != null && playerState.positionMs >= pending - 1500L) {
+        val pendingMediaId = pendingSeekMediaId
+        if (pending != null && pendingMediaId != null && playerState.mediaId != pendingMediaId) {
             pendingSeekPositionMs = null
+            pendingSeekMediaId = null
+        }
+    }
+
+    LaunchedEffect(pendingSeekPositionMs, pendingSeekMediaId) {
+        if (pendingSeekPositionMs == null || pendingSeekMediaId == null) return@LaunchedEffect
+        delay(PLAYBACK_SEEK_TIMEOUT_MS)
+        if (pendingSeekPositionMs != null && pendingSeekMediaId != null) {
+            pendingSeekPositionMs = null
+            pendingSeekMediaId = null
+            playbackError = "Seek is taking too long. Check the network and try again."
+        }
+    }
+
+    LaunchedEffect(playerState.stationId, playerState.playbackStartTime, playerState.isLive, switchingTarget) {
+        when (val target = switchingTarget) {
+            is PlaybackSwitchTarget.Live -> {
+                if (playerState.isLive && playerState.stationId == target.stationId) {
+                    switchingTarget = null
+                    playbackError = null
+                }
+            }
+            is PlaybackSwitchTarget.Timefree -> {
+                if (!playerState.isLive && playerState.stationId == target.stationId && playerState.playbackStartTime == target.startTime) {
+                    switchingTarget = null
+                    playbackError = null
+                }
+            }
+            null -> Unit
+        }
+    }
+
+    LaunchedEffect(switchingTarget) {
+        val target = switchingTarget ?: return@LaunchedEffect
+        delay(PLAYBACK_SWITCH_TIMEOUT_MS)
+        if (switchingTarget == target) {
+            switchingTarget = null
+            playbackError = "Playback is taking too long. Check the network and try again."
         }
     }
 
@@ -221,7 +284,8 @@ fun YarApp(
         if (playingProgram?.stationId != stationId) {
             playingProgram = null
         }
-        val loadedPrograms = runCatching { client.getPrograms(stationId) }.getOrDefault(emptyList())
+        val playbackDate = playerState.playbackStartTime?.takeIf { it.length >= 8 }?.substring(0, 8)
+        val loadedPrograms = runCatching { client.getPrograms(stationId, playbackDate) }.getOrDefault(emptyList())
         playbackPrograms = loadedPrograms
         playingProgram = when {
             playerState.playbackStartTime != null -> loadedPrograms.firstOrNull { it.startTime == playerState.playbackStartTime }
@@ -259,13 +323,16 @@ fun YarApp(
 
     YarTheme {
         YarBackground {
-            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing),
+            ) {
                 val horizontalPadding = if (maxWidth < 600.dp) 16.dp else 24.dp
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = horizontalPadding, vertical = 12.dp)
-                        .windowInsetsPadding(WindowInsets.navigationBars),
+                        .padding(horizontal = horizontalPadding, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     HomeHeader()
@@ -281,6 +348,7 @@ fun YarApp(
                             selectedDate = selectedDate,
                             programs = programs,
                             programsLoading = programsLoading,
+                            switchingTarget = switchingTarget,
                             error = error,
                         ),
                         modifier = Modifier
@@ -308,8 +376,8 @@ fun YarApp(
                         MiniPlayer(
                             state = playbackUiState,
                             onPauseResume = { pauseResume() },
-                            onSkipBack = { sendPlaybackAction(YarMediaLibraryService.ACTION_SKIP_BACK) },
-                            onSkipForward = { sendPlaybackAction(YarMediaLibraryService.ACTION_SKIP_FORWARD) },
+                            onSkipBack = { skipTimefree(-30_000L) },
+                            onSkipForward = { skipTimefree(30_000L) },
                             onOpenDetails = { showPlayerDetails = true },
                             onOpenDragProgress = { playerDetailsOpenDragProgress = it },
                         )
@@ -329,8 +397,10 @@ fun YarApp(
                     },
                     onPauseResume = { pauseResume() },
                     onSeek = { seekTimefree(it) },
-                    onSkipBack = { sendPlaybackAction(YarMediaLibraryService.ACTION_SKIP_BACK) },
-                    onSkipForward = { sendPlaybackAction(YarMediaLibraryService.ACTION_SKIP_FORWARD) },
+                    onSkipBack = { skipTimefree(-30_000L) },
+                    onSkipForward = { skipTimefree(30_000L) },
+                    onPlayLive = { playLive(it) },
+                    onPlayTimefree = { station, program -> playTimefree(station, program) },
                 )
             }
         }

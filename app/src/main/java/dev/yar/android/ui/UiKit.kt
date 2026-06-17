@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledIconButton
@@ -22,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -82,12 +84,13 @@ internal fun GlassCard(
 internal fun ListSurface(
     modifier: Modifier = Modifier,
     selected: Boolean = false,
+    enabled: Boolean = true,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
-    val clickableModifier = if (onClick != null) modifier.clickable(onClick = onClick) else modifier
+    val clickableModifier = if (onClick != null && enabled) modifier.clickable(onClick = onClick) else modifier
     Surface(
-        modifier = clickableModifier,
+        modifier = clickableModifier.alpha(if (enabled) 1f else 0.58f),
         shape = MaterialTheme.shapes.medium,
         tonalElevation = if (selected) 5.dp else 1.dp,
         color = if (selected) MaterialTheme.colorScheme.primaryContainer else ElevatedPanel,
@@ -165,28 +168,44 @@ internal fun StatusPill(
 }
 
 @Composable
-internal fun PlayerPrimaryButton(label: String, onClick: () -> Unit, compact: Boolean = false) {
+internal fun PlayerPrimaryButton(
+    label: String,
+    onClick: () -> Unit,
+    compact: Boolean = false,
+    enabled: Boolean = true,
+    loading: Boolean = false,
+) {
     FilledIconButton(
         onClick = onClick,
+        enabled = enabled && !loading,
         modifier = if (compact) Modifier.size(42.dp) else Modifier.size(60.dp),
         colors = IconButtonDefaults.filledIconButtonColors(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
         ),
     ) {
-        Text(
-            text = label,
-            textAlign = TextAlign.Center,
-            fontWeight = FontWeight.Black,
-            style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.headlineSmall,
-        )
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(if (compact) 18.dp else 24.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
+        } else {
+            Text(
+                text = label,
+                textAlign = TextAlign.Center,
+                fontWeight = FontWeight.Black,
+                style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.headlineSmall,
+            )
+        }
     }
 }
 
 @Composable
-internal fun PlayerSecondaryButton(label: String, onClick: () -> Unit) {
+internal fun PlayerSecondaryButton(label: String, onClick: () -> Unit, enabled: Boolean = true) {
     OutlinedIconButton(
         onClick = onClick,
+        enabled = enabled,
         modifier = Modifier.height(48.dp),
         colors = IconButtonDefaults.outlinedIconButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
     ) {
@@ -212,6 +231,27 @@ internal fun EmptyState(
         ) {
             Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
             Text(message, color = MutedText, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@Composable
+internal fun NoticeCard(
+    title: String,
+    message: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.72f),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(title, color = MaterialTheme.colorScheme.onErrorContainer, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+            Text(message, color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
