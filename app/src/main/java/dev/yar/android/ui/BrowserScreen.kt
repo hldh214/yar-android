@@ -8,22 +8,21 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -55,42 +54,62 @@ internal fun BrowserScreen(
     onDateSelected: (BroadcastDate) -> Unit,
     onProgramSelected: (Station, Program) -> Unit,
 ) {
-    GlassCard(modifier = modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            SectionHeader(
-                eyebrow = "Radio library",
-                title = "Browse radio",
-                subtitle = state.selectedStation?.let { "Selected ${it.name}" } ?: "Regions, live stations, and timefree programs.",
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        HomeHeaderRow(state)
+        when {
+            state.error != null -> EmptyState(
+                title = "Stations did not load",
+                message = state.error,
             )
-            when {
-                state.error != null -> EmptyState(
-                    title = "Stations did not load",
-                    message = state.error,
-                )
-                state.regions.isEmpty() -> EmptyState(
-                    title = "Loading stations",
-                    message = "Fetching radiko regions and stations.",
-                )
-                else -> StationBrowser(
-                    state = state,
-                    modifier = Modifier.weight(1f),
-                    onRegionSelected = onRegionSelected,
-                    onStationSelected = onStationSelected,
-                    onDateSelected = onDateSelected,
-                    onProgramSelected = onProgramSelected,
-                )
-            }
+            state.regions.isEmpty() -> EmptyState(
+                title = "Loading stations",
+                message = "Fetching radiko regions and stations.",
+            )
+            else -> StationHome(
+                state = state,
+                modifier = Modifier.weight(1f),
+                onRegionSelected = onRegionSelected,
+                onStationSelected = onStationSelected,
+                onDateSelected = onDateSelected,
+                onProgramSelected = onProgramSelected,
+            )
         }
     }
 }
 
 @Composable
-private fun StationBrowser(
+private fun HomeHeaderRow(state: BrowserUiState) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "Yar",
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Black,
+                style = MaterialTheme.typography.headlineLarge,
+            )
+            Text(
+                text = state.selectedRegion?.name ?: "Choose a region",
+                color = MutedText,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        state.selectedStation?.let {
+            StatusPill(text = it.id, color = ActiveGreen)
+        }
+    }
+}
+
+@Composable
+private fun StationHome(
     state: BrowserUiState,
     modifier: Modifier = Modifier,
     onRegionSelected: (Region) -> Unit,
@@ -100,147 +119,74 @@ private fun StationBrowser(
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         if (maxWidth < 680.dp) {
-            MobileBrowser(
-                state = state,
-                onRegionSelected = onRegionSelected,
-                onStationSelected = onStationSelected,
-                onDateSelected = onDateSelected,
-                onProgramSelected = onProgramSelected,
-            )
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                RecentStationsRail(
+                    stations = state.recentStations,
+                    switchingTarget = state.switchingTarget,
+                    onStationSelected = onStationSelected,
+                )
+                RegionSelector(
+                    regions = state.regions,
+                    selectedRegion = state.selectedRegion,
+                    onRegionSelected = onRegionSelected,
+                )
+                StationList(
+                    region = state.selectedRegion,
+                    switchingTarget = state.switchingTarget,
+                    modifier = Modifier.weight(1f),
+                    onStationSelected = onStationSelected,
+                )
+                TimefreePrograms(
+                    station = state.selectedStation,
+                    selectedDate = state.selectedDate,
+                    programs = state.programs,
+                    programsLoading = state.programsLoading,
+                    switchingTarget = state.switchingTarget,
+                    modifier = Modifier.weight(0.9f),
+                    onDateSelected = onDateSelected,
+                    onProgramSelected = onProgramSelected,
+                )
+            }
         } else {
-            WideBrowser(
-                state = state,
-                onRegionSelected = onRegionSelected,
-                onStationSelected = onStationSelected,
-                onDateSelected = onDateSelected,
-                onProgramSelected = onProgramSelected,
-            )
-        }
-    }
-}
-
-@Composable
-private fun MobileBrowser(
-    state: BrowserUiState,
-    onRegionSelected: (Region) -> Unit,
-    onStationSelected: (Station) -> Unit,
-    onDateSelected: (BroadcastDate) -> Unit,
-    onProgramSelected: (Station, Program) -> Unit,
-) {
-    var section by remember { mutableStateOf(MobileBrowseSection.Regions) }
-
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        RecentStationsRail(
-            stations = state.recentStations,
-            switchingTarget = state.switchingTarget,
-            onStationSelected = onStationSelected,
-        )
-        MobileBrowseTabs(
-            selected = section,
-            hasStation = state.selectedStation != null,
-            onSelected = { section = it },
-        )
-        when (section) {
-            MobileBrowseSection.Regions -> RegionList(
-                regions = state.regions,
-                selectedRegion = state.selectedRegion,
-                modifier = Modifier.weight(1f),
-                onRegionSelected = {
-                    onRegionSelected(it)
-                    section = MobileBrowseSection.Stations
-                },
-            )
-            MobileBrowseSection.Stations -> StationList(
-                region = state.selectedRegion,
-                switchingTarget = state.switchingTarget,
-                modifier = Modifier.weight(1f),
-                onStationSelected = onStationSelected,
-            )
-            MobileBrowseSection.Timefree -> TimefreePrograms(
-                station = state.selectedStation,
-                selectedDate = state.selectedDate,
-                programs = state.programs,
-                programsLoading = state.programsLoading,
-                switchingTarget = state.switchingTarget,
-                modifier = Modifier.weight(1f),
-                onDateSelected = onDateSelected,
-                onProgramSelected = onProgramSelected,
-            )
-        }
-    }
-}
-
-@Composable
-private fun WideBrowser(
-    state: BrowserUiState,
-    onRegionSelected: (Region) -> Unit,
-    onStationSelected: (Station) -> Unit,
-    onDateSelected: (BroadcastDate) -> Unit,
-    onProgramSelected: (Station, Program) -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxSize(),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Column(
-            modifier = Modifier.weight(0.9f),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            RecentStationsRail(
-                stations = state.recentStations,
-                switchingTarget = state.switchingTarget,
-                onStationSelected = onStationSelected,
-            )
-            RegionList(
-                regions = state.regions,
-                selectedRegion = state.selectedRegion,
-                modifier = Modifier.weight(1f),
-                onRegionSelected = onRegionSelected,
-            )
-        }
-        StationList(
-            region = state.selectedRegion,
-            switchingTarget = state.switchingTarget,
-            modifier = Modifier.weight(1f),
-            onStationSelected = onStationSelected,
-        )
-        TimefreePrograms(
-            station = state.selectedStation,
-            selectedDate = state.selectedDate,
-            programs = state.programs,
-            programsLoading = state.programsLoading,
-            switchingTarget = state.switchingTarget,
-            modifier = Modifier.weight(1.1f),
-            onDateSelected = onDateSelected,
-            onProgramSelected = onProgramSelected,
-        )
-    }
-}
-
-private enum class MobileBrowseSection(val label: String) {
-    Regions("Regions"),
-    Stations("Stations"),
-    Timefree("Timefree"),
-}
-
-@Composable
-private fun MobileBrowseTabs(
-    selected: MobileBrowseSection,
-    hasStation: Boolean,
-    onSelected: (MobileBrowseSection) -> Unit,
-) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        MobileBrowseSection.entries.forEach { section ->
-            val enabled = section != MobileBrowseSection.Timefree || hasStation
-            StatusPill(
-                text = section.label,
-                selected = enabled && section == selected,
-                modifier = Modifier.clickable(enabled = enabled) { onSelected(section) },
-                color = if (enabled) MaterialTheme.colorScheme.primary else MutedText,
-            )
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Column(
+                    modifier = Modifier.weight(0.85f),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    RecentStationsRail(
+                        stations = state.recentStations,
+                        switchingTarget = state.switchingTarget,
+                        onStationSelected = onStationSelected,
+                    )
+                    RegionSelector(
+                        regions = state.regions,
+                        selectedRegion = state.selectedRegion,
+                        onRegionSelected = onRegionSelected,
+                    )
+                }
+                StationList(
+                    region = state.selectedRegion,
+                    switchingTarget = state.switchingTarget,
+                    modifier = Modifier.weight(1.25f),
+                    onStationSelected = onStationSelected,
+                )
+                TimefreePrograms(
+                    station = state.selectedStation,
+                    selectedDate = state.selectedDate,
+                    programs = state.programs,
+                    programsLoading = state.programsLoading,
+                    switchingTarget = state.switchingTarget,
+                    modifier = Modifier.weight(1f),
+                    onDateSelected = onDateSelected,
+                    onProgramSelected = onProgramSelected,
+                )
+            }
         }
     }
 }
@@ -271,10 +217,10 @@ private fun RecentStationsRail(
 private fun RecentStationCard(station: Station, loading: Boolean, enabled: Boolean, onClick: () -> Unit) {
     Surface(
         modifier = Modifier
-            .width(116.dp)
+            .width(104.dp)
             .clickable(enabled = enabled && !loading, onClick = onClick),
         shape = MaterialTheme.shapes.large,
-        color = ElevatedPanelAlt,
+        color = ElevatedPanel,
         tonalElevation = 3.dp,
     ) {
         Column(
@@ -284,7 +230,7 @@ private fun RecentStationCard(station: Station, loading: Boolean, enabled: Boole
             PlaybackImage(
                 url = station.logoUrl,
                 label = station.name,
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier.size(56.dp),
                 contentScale = ContentScale.Fit,
             )
             Text(
@@ -295,8 +241,10 @@ private fun RecentStationCard(station: Station, loading: Boolean, enabled: Boole
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
-                text = if (loading) "Starting live..." else station.areaId,
+                text = stationSubtitle(station.asciiName, station.id),
                 color = MutedText,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.labelSmall,
             )
             if (loading) {
@@ -311,25 +259,24 @@ private fun RecentStationCard(station: Station, loading: Boolean, enabled: Boole
 }
 
 @Composable
-private fun RegionList(
+private fun RegionSelector(
     regions: List<Region>,
     selectedRegion: Region?,
-    modifier: Modifier = Modifier,
     onRegionSelected: (Region) -> Unit,
 ) {
-    LazyColumn(
-        modifier = modifier.fillMaxWidth(),
+    Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        item {
-            Text("Regions", color = MutedText, style = MaterialTheme.typography.labelLarge)
-        }
-        items(regions, key = { it.id }) { region ->
-            RegionRow(
-                region = region,
-                selected = region.id == selectedRegion?.id,
-                onClick = { onRegionSelected(region) },
-            )
+        Text("Regions", color = MutedText, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(regions, key = { it.id }) { region ->
+                StatusPill(
+                    text = region.name,
+                    selected = region.id == selectedRegion?.id,
+                    modifier = Modifier.clickable { onRegionSelected(region) },
+                    color = ActiveGreen,
+                )
+            }
         }
     }
 }
@@ -346,11 +293,23 @@ private fun StationList(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
-            Text(
-                text = region?.name ?: "Stations",
-                color = MutedText,
-                style = MaterialTheme.typography.labelLarge,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "Stations",
+                    color = MutedText,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                region?.let {
+                    Text(
+                        text = it.name,
+                        color = MutedText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
         }
         items(region?.stations.orEmpty(), key = { it.id }) { station ->
             StationRow(
@@ -385,10 +344,20 @@ private fun TimefreePrograms(
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = station?.let { "Timefree for ${it.name}" } ?: "Timefree",
+                    text = "Timefree",
                     color = MutedText,
+                    fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.labelLarge,
                 )
+                station?.let {
+                    Text(
+                        text = it.name,
+                        color = MutedText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 if (station != null) {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(broadcastDates(), key = { it.value }) { date ->
@@ -434,40 +403,6 @@ private fun TimefreePrograms(
 }
 
 @Composable
-private fun RegionRow(region: Region, selected: Boolean, onClick: () -> Unit) {
-    ListSurface(selected = selected, onClick = onClick) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(
-                modifier = Modifier.size(36.dp),
-                shape = MaterialTheme.shapes.medium,
-                color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else ElevatedPanelAlt,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = region.name.take(1),
-                        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.Black,
-                    )
-                }
-            }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    text = region.name,
-                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                Text("${region.stations.size} stations", color = MutedText, style = MaterialTheme.typography.bodySmall)
-            }
-        }
-    }
-}
-
-@Composable
 private fun StationRow(station: Station, loading: Boolean, enabled: Boolean, onClick: () -> Unit) {
     ListSurface(selected = loading, enabled = enabled || loading, onClick = if (loading) null else onClick) {
         Row(
@@ -490,20 +425,30 @@ private fun StationRow(station: Station, loading: Boolean, enabled: Boolean, onC
                     style = MaterialTheme.typography.titleSmall,
                 )
                 Text(
-                    text = station.asciiName.ifBlank { station.id },
+                    text = stationSubtitle(station.asciiName, station.id),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = MutedText,
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            if (loading) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = LiveAccent)
-                    StatusPill(text = "Starting", color = LiveAccent)
+            Surface(
+                modifier = Modifier.size(36.dp),
+                shape = CircleShape,
+                color = LiveAccent.copy(alpha = if (loading) 0.18f else 0.12f),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    if (loading) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = LiveAccent)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.PlayArrow,
+                            contentDescription = "Play live",
+                            modifier = Modifier.size(22.dp),
+                            tint = LiveAccent,
+                        )
+                    }
                 }
-            } else {
-                StatusPill(text = "Live", color = LiveAccent)
             }
         }
     }

@@ -335,7 +335,6 @@ fun YarApp(
                         .padding(horizontal = horizontalPadding, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    HomeHeader()
                     if (showNotificationPermissionPrompt) {
                         NotificationPermissionCard(onRequestPermission = onRequestNotificationPermission)
                     }
@@ -404,23 +403,6 @@ fun YarApp(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun HomeHeader() {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            text = "Yar",
-            color = MaterialTheme.colorScheme.onBackground,
-            fontWeight = FontWeight.Black,
-            style = MaterialTheme.typography.headlineLarge,
-        )
-        Text(
-            text = "Native radiko listening, live and timefree.",
-            color = MutedText,
-            style = MaterialTheme.typography.bodyMedium,
-        )
     }
 }
 
