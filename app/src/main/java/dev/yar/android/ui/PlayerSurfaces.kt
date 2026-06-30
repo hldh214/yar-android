@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,9 +24,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.Replay30
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -386,17 +391,17 @@ internal fun PlayerDetailsOverlay(
                     state.playbackError?.let {
                         NoticeCard(title = "Playback issue", message = it)
                     }
-                    StationPlaybackSwitch(
-                        state = state,
-                        onPlayLive = onPlayLive,
-                        onPlayTimefree = onPlayTimefree,
-                    )
                     state.currentSong?.let { CurrentSongCard(song = it, isLive = state.isLive) }
                     SongsSection(
                         currentSong = state.currentSong,
                         songs = state.songs,
                         loading = state.songsLoading,
                         isLive = state.isLive,
+                    )
+                    StationPlaybackSwitch(
+                        state = state,
+                        onPlayLive = onPlayLive,
+                        onPlayTimefree = onPlayTimefree,
                     )
                     state.program?.let { program ->
                         ProgramDescription(program = program, onOpenUrl = { uriHandler.openUri(it) })
@@ -434,19 +439,16 @@ private fun StationPlaybackSwitch(
         }
     }
 
-    GlassCard(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("${station.name} programs", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    text = if (state.isLive) "You are listening live. Choose a program below for timefree." else "You are listening to timefree. Return to live anytime.",
-                    color = MutedText,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
+    PlayerSection {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SectionTitle(
+                title = "${station.name} programs",
+                subtitle = if (state.isLive) {
+                    "Choose a recent program for timefree."
+                } else {
+                    "Return to live anytime."
+                },
+            )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 if (state.isLive) {
                     StatusPill(text = "Live now", color = LiveAccent)
@@ -487,7 +489,7 @@ private fun StationPlaybackSwitch(
 @Composable
 private fun SwitchActionPill(text: String, loading: Boolean, modifier: Modifier = Modifier) {
     Surface(
-        modifier = modifier,
+        modifier = modifier.defaultMinSize(minHeight = 48.dp),
         shape = MaterialTheme.shapes.small,
         color = LiveAccent.copy(alpha = 0.16f),
     ) {
@@ -611,14 +613,21 @@ private fun PlayerTopBar(state: PlaybackUiState, onDismiss: () -> Unit) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             PlaybackImage(
                 url = state.stationLogoUrl,
                 label = state.station?.name ?: "Yar",
                 modifier = Modifier.size(38.dp),
                 contentScale = ContentScale.Fit,
             )
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 Text("Playing from", color = MutedText, style = MaterialTheme.typography.labelSmall)
                 Text(
                     text = state.station?.name ?: "Yar",
@@ -629,46 +638,49 @@ private fun PlayerTopBar(state: PlaybackUiState, onDismiss: () -> Unit) {
                 )
             }
         }
-        Text(
-            text = "Close",
-            modifier = Modifier.clickable(onClick = onDismiss),
-            color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.titleSmall,
-        )
+        IconButton(onClick = onDismiss) {
+            Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = "Close player",
+                tint = MaterialTheme.colorScheme.onBackground,
+            )
+        }
     }
 }
 
 @Composable
 private fun PlaybackHero(state: PlaybackUiState) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        PlaybackImage(
-            url = state.artworkUrl,
-            label = state.program?.title ?: state.title ?: "Now Playing",
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1.9f),
-            contentScale = ContentScale.Fit,
-        )
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            InlineMetaRow {
-                StatusPill(
-                    text = if (state.isLive) "LIVE" else "TIMEFREE",
-                    color = if (state.isLive) LiveAccent else MaterialTheme.colorScheme.secondary,
-                )
-                state.program?.let { ProgramMetaChips(program = it) }
-            }
-            Text(
-                text = state.title ?: state.program?.title ?: "Now Playing",
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-                fontWeight = FontWeight.Black,
-                style = MaterialTheme.typography.headlineSmall,
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            PlaybackImage(
+                url = state.artworkUrl,
+                label = state.program?.title ?: state.title ?: "Now Playing",
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .aspectRatio(1f),
+                contentScale = ContentScale.Fit,
             )
-            if (state.program?.performer?.isNotBlank() == true) {
-                Text(state.program.performer, color = MutedText, style = MaterialTheme.typography.bodyMedium)
-            }
         }
+        InlineMetaRow {
+            StatusPill(
+                text = if (state.isLive) "LIVE" else "TIMEFREE",
+                color = if (state.isLive) LiveAccent else MaterialTheme.colorScheme.secondary,
+            )
+            state.program?.let { ProgramMetaChips(program = it) }
+        }
+        Text(
+            text = state.title ?: state.program?.title ?: "Now Playing",
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+            fontWeight = FontWeight.Black,
+            style = MaterialTheme.typography.headlineSmall,
+        )
+        state.program?.performer
+            ?.takeIf { it.isNotBlank() }
+            ?.let { Text(it, color = MutedText, style = MaterialTheme.typography.bodyMedium) }
     }
 }
 
@@ -694,92 +706,87 @@ private fun PlaybackControls(
 ) {
     var draggingPositionMs by remember { mutableStateOf<Long?>(null) }
     val displayPositionMs = draggingPositionMs ?: positionMs
-    val controlsLocked = isSwitching || isSeeking || isBuffering
+    val locked = controlsLocked(isSwitching = isSwitching, isSeeking = isSeeking, isBuffering = isBuffering)
 
-    GlassCard(modifier = Modifier.fillMaxWidth(), highlight = true) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = if (isLive) Arrangement.Center else Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = if (isLive) Arrangement.Center else Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (!isLive) {
-                    PlayerSecondaryButton(
-                        imageVector = Icons.Filled.Replay30,
-                        contentDescription = "Skip back 30 seconds",
-                        onClick = onSkipBack,
-                        enabled = !controlsLocked,
-                    )
-                }
-                PlayerPrimaryButton(
-                    isPlaying = isPlaying,
-                    onClick = onPauseResume,
-                    enabled = !isSwitching,
-                    loading = isSwitching,
+            if (!isLive) {
+                PlayerSecondaryButton(
+                    imageVector = Icons.Filled.Replay30,
+                    contentDescription = "Skip back 30 seconds",
+                    onClick = onSkipBack,
+                    enabled = !locked,
                 )
-                if (!isLive) {
-                    PlayerSecondaryButton(
-                        imageVector = Icons.Filled.Forward30,
-                        contentDescription = "Skip forward 30 seconds",
-                        onClick = onSkipForward,
-                        enabled = !controlsLocked,
-                    )
-                }
             }
+            PlayerPrimaryButton(
+                isPlaying = isPlaying,
+                onClick = onPauseResume,
+                enabled = !isSwitching,
+                loading = isSwitching,
+            )
+            if (!isLive) {
+                PlayerSecondaryButton(
+                    imageVector = Icons.Filled.Forward30,
+                    contentDescription = "Skip forward 30 seconds",
+                    onClick = onSkipForward,
+                    enabled = !locked,
+                )
+            }
+        }
 
-            if (controlsLocked) {
+        if (locked) {
+            Text(
+                text = when {
+                    isSwitching -> "Switching playback..."
+                    isSeeking -> "Seeking..."
+                    else -> "Buffering audio..."
+                },
+                color = MutedText,
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
+
+        if (!isLive && durationMs > 0) {
+            Slider(
+                value = displayPositionMs.toFloat().coerceIn(0f, durationMs.toFloat()),
+                onValueChange = { if (!locked) draggingPositionMs = it.toLong() },
+                onValueChangeFinished = {
+                    if (!locked) draggingPositionMs?.let(onSeek)
+                    draggingPositionMs = null
+                },
+                enabled = !locked,
+                valueRange = 0f..durationMs.toFloat(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(
-                    text = when {
-                        isSwitching -> "Switching playback..."
-                        isSeeking -> "Seeking..."
-                        else -> "Buffering audio..."
-                    },
+                    text = if (isSeeking) "Seeking ${formatDuration(displayPositionMs)}" else formatDuration(displayPositionMs),
                     color = MutedText,
                     style = MaterialTheme.typography.labelMedium,
                 )
+                Text(formatDuration(durationMs), color = MutedText, style = MaterialTheme.typography.labelMedium)
             }
-
-            if (!isLive && durationMs > 0) {
-                Slider(
-                    value = displayPositionMs.toFloat().coerceIn(0f, durationMs.toFloat()),
-                    onValueChange = { if (!controlsLocked) draggingPositionMs = it.toLong() },
-                    onValueChangeFinished = {
-                        if (!controlsLocked) draggingPositionMs?.let(onSeek)
-                        draggingPositionMs = null
-                    },
-                    enabled = !controlsLocked,
-                    valueRange = 0f..durationMs.toFloat(),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(
-                        text = if (isSeeking) "Seeking ${formatDuration(displayPositionMs)}" else formatDuration(displayPositionMs),
-                        color = MutedText,
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                    Text(formatDuration(durationMs), color = MutedText, style = MaterialTheme.typography.labelMedium)
-                }
-            } else {
-                Text("Live stream controls", color = MutedText, style = MaterialTheme.typography.labelMedium)
-            }
+        } else {
+            Text("Live stream controls", color = MutedText, style = MaterialTheme.typography.labelMedium)
         }
     }
 }
 
 @Composable
 private fun CurrentSongCard(song: NoaItem, isLive: Boolean) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = if (isLive) "Now On-Air Song" else "Current Song",
-            color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.labelLarge,
-        )
-        SongRow(song = song, highlighted = true)
+    PlayerSection {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SectionTitle(title = if (isLive) "Now On-Air Song" else "Current Song")
+            SongRow(song = song, highlighted = true)
+        }
     }
 }
 
@@ -791,23 +798,29 @@ private fun SongsSection(
     isLive: Boolean,
 ) {
     val displaySongs = remember(songs) { songs.sortedByDescending { it.stamp } }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    if (!loading && displaySongs.isEmpty()) return
+
+    PlayerSection {
         when {
-            loading && songs.isEmpty() -> EmptyState(
-                title = "Loading songs",
-                message = if (isLive) "Fetching current on-air songs." else "Fetching song history for this program.",
-            )
+            loading && songs.isEmpty() -> {
+                SectionTitle(
+                    title = "Loading songs",
+                    subtitle = if (isLive) "Fetching current on-air songs." else "Fetching song history for this program.",
+                )
+            }
             displaySongs.isNotEmpty() -> {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Song History", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                    StatusPill(text = displaySongs.size.toString(), color = MaterialTheme.colorScheme.secondary)
-                }
-                LazyColumn(
-                    modifier = Modifier.height(170.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(displaySongs, key = { it.id.ifBlank { it.stamp + it.title } }) { song ->
-                        SongRow(song = song, highlighted = song.id.isNotBlank() && song.id == currentSong?.id)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Song History", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        StatusPill(text = displaySongs.size.toString(), color = MaterialTheme.colorScheme.secondary)
+                    }
+                    LazyColumn(
+                        modifier = Modifier.height(170.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(displaySongs, key = { it.id.ifBlank { it.stamp + it.title } }) { song ->
+                            SongRow(song = song, highlighted = song.id.isNotBlank() && song.id == currentSong?.id)
+                        }
                     }
                 }
             }
@@ -879,11 +892,8 @@ private fun ProgramDescription(program: Program, onOpenUrl: (String) -> Unit) {
         .joinToString("\n\n")
     if (program.subtitle.isBlank() && detail.isBlank() && program.url.isBlank()) return
 
-    GlassCard(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
+    PlayerSection {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -902,18 +912,18 @@ private fun ProgramDescription(program: Program, onOpenUrl: (String) -> Unit) {
             if (!expanded) {
                 val preview = program.subtitle.ifBlank { detail }.lineSequence().firstOrNull().orEmpty()
                 if (preview.isNotBlank()) Text(preview, maxLines = 2, color = MutedText, style = MaterialTheme.typography.bodyMedium)
-                return@Column
-            }
-            if (program.subtitle.isNotBlank()) Text(program.subtitle, style = MaterialTheme.typography.bodyLarge)
-            if (detail.isNotBlank()) Text(detail, color = MutedText, style = MaterialTheme.typography.bodyMedium)
-            if (program.url.isNotBlank()) {
-                Text(
-                    text = "Program Website",
-                    modifier = Modifier.clickable { onOpenUrl(program.url) },
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.bodyLarge,
-                )
+            } else {
+                if (program.subtitle.isNotBlank()) Text(program.subtitle, style = MaterialTheme.typography.bodyLarge)
+                if (detail.isNotBlank()) Text(detail, color = MutedText, style = MaterialTheme.typography.bodyMedium)
+                if (program.url.isNotBlank()) {
+                    Text(
+                        text = "Program Website",
+                        modifier = Modifier.clickable { onOpenUrl(program.url) },
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
             }
         }
     }
@@ -925,31 +935,54 @@ private fun TimetableSection(
     programs: List<Program>,
     onToggle: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onToggle),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Same-day timetable", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-            Text(
-                text = if (expanded) "Hide" else "Show",
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.labelLarge,
-            )
-        }
-        if (expanded) {
-            LazyColumn(
-                modifier = Modifier.height(250.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+    PlayerSection {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggle),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                items(programs, key = { it.id }) { item ->
-                    ProgramRow(program = item, onClick = {})
+                Text("Same-day timetable", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = if (expanded) "Hide" else "Show",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
+            if (expanded) {
+                LazyColumn(
+                    modifier = Modifier.height(250.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(programs, key = { it.id }) { item ->
+                        ProgramRow(program = item, onClick = {})
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PlayerSection(content: @Composable () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.24f))
+        content()
+    }
+}
+
+@Composable
+private fun SectionTitle(title: String, subtitle: String? = null) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+        if (!subtitle.isNullOrBlank()) {
+            Text(subtitle, color = MutedText, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
