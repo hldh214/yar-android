@@ -97,6 +97,13 @@ internal fun MiniPlayer(
     var dragY by remember { mutableStateOf(0f) }
     val openDragDistancePx = with(LocalDensity.current) { 260.dp.toPx() }
     val busy = state.switchingTarget != null || state.isBuffering || state.isSeeking
+    val statusLabel = playbackStatusLabel(isLive = state.isLive, busy = busy)
+    val secondaryLine = when {
+        state.currentSong?.artist?.isNotBlank() == true -> state.currentSong.artist
+        state.program?.performer?.isNotBlank() == true -> state.program.performer
+        state.station?.name?.isNotBlank() == true -> state.station.name
+        else -> "Yar"
+    }
 
     Surface(
         modifier = modifier
@@ -123,29 +130,26 @@ internal fun MiniPlayer(
                     },
                 )
             },
-        shape = MaterialTheme.shapes.extraLarge,
-        color = GlassPanel,
-        tonalElevation = 8.dp,
+        shape = MaterialTheme.shapes.large,
+        color = if (state.isLive) MaterialTheme.colorScheme.primaryContainer else ElevatedPanelAlt,
+        tonalElevation = 3.dp,
     ) {
-        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 PlaybackImage(
                     url = state.artworkUrl,
                     label = state.title ?: state.station?.name ?: "Yar",
-                    modifier = Modifier.size(54.dp),
+                    modifier = Modifier.size(52.dp),
                     contentScale = ContentScale.Fit,
                 )
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     InlineMetaRow {
                         StatusPill(
-                            text = when {
-                                busy -> "LOADING"
-                                state.isLive -> "LIVE"
-                                else -> "TIMEFREE"
-                            },
+                            text = statusLabel,
                             color = if (state.isLive) LiveAccent else MaterialTheme.colorScheme.secondary,
                         )
                         state.station?.name?.let {
@@ -165,14 +169,14 @@ internal fun MiniPlayer(
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium,
                     )
-                    if (!state.isLive && state.durationMs > 0) {
-                        LinearProgressIndicator(
-                            progress = { (state.positionMs.toFloat() / state.durationMs.toFloat()).coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxWidth(),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = ElevatedPanelAlt,
-                        )
-                    }
+                    Text(
+                        text = secondaryLine,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MutedText,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    MiniPlayerProgressStrip(state = state, busy = busy)
                 }
                 MiniPlayerControls(
                     isPlaying = state.isPlaying,
@@ -183,24 +187,52 @@ internal fun MiniPlayer(
                     onSkipForward = onSkipForward,
                 )
             }
-            if (busy) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            }
             state.playbackError?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
-            }
-            if (!state.isLive && state.durationMs > 0) {
                 Text(
-                    text = if (state.isSeeking) {
-                        "Seeking ${formatDuration(state.positionMs)} / ${formatDuration(state.durationMs)}"
-                    } else {
-                        "${formatDuration(state.positionMs)} / ${formatDuration(state.durationMs)}"
-                    },
-                    color = MutedText,
+                    text = it,
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun MiniPlayerProgressStrip(
+    state: PlaybackUiState,
+    busy: Boolean,
+) {
+    val hasTimefreeProgress = !state.isLive && state.durationMs > 0
+    val statusText = when {
+        hasTimefreeProgress && state.isSeeking -> "Seeking ${formatDuration(state.positionMs)} / ${formatDuration(state.durationMs)}"
+        hasTimefreeProgress -> "${formatDuration(state.positionMs)} / ${formatDuration(state.durationMs)}"
+        busy -> playbackStatusLabel(isLive = state.isLive, busy = true)
+        state.isLive -> "Live stream"
+        else -> "Timefree"
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        if (busy) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        } else {
+            LinearProgressIndicator(
+                progress = { if (hasTimefreeProgress) playbackProgressRatio(state.positionMs, state.durationMs) else 0f },
+                modifier = Modifier.fillMaxWidth(),
+                color = if (state.isLive) LiveAccent else MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+            )
+        }
+        Text(
+            text = statusText,
+            color = MutedText,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.labelSmall,
+        )
     }
 }
 
@@ -215,13 +247,11 @@ private fun MiniPlayerControls(
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         if (!isLive) {
-            Text(
-                text = "-30",
-                modifier = Modifier
-                    .clickable(enabled = !busy, onClick = onSkipBack)
-                    .padding(8.dp),
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.labelMedium,
+            PlayerSecondaryButton(
+                imageVector = Icons.Filled.Replay30,
+                contentDescription = "Skip back 30 seconds",
+                onClick = onSkipBack,
+                enabled = !busy,
             )
         }
         PlayerPrimaryButton(
@@ -232,13 +262,11 @@ private fun MiniPlayerControls(
             loading = busy,
         )
         if (!isLive) {
-            Text(
-                text = "+30",
-                modifier = Modifier
-                    .clickable(enabled = !busy, onClick = onSkipForward)
-                    .padding(8.dp),
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.labelMedium,
+            PlayerSecondaryButton(
+                imageVector = Icons.Filled.Forward30,
+                contentDescription = "Skip forward 30 seconds",
+                onClick = onSkipForward,
+                enabled = !busy,
             )
         }
     }
