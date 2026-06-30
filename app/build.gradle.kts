@@ -100,4 +100,5 @@ dependencies {
     implementation(libs.androidx.media3.ui)
     implementation(libs.guava)
     implementation(libs.kotlinx.coroutines.guava)
+    testImplementation(libs.junit)
 }
