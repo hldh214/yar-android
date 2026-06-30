@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -84,10 +85,13 @@ internal fun BrowserScreen(
 private fun HomeHeaderRow(state: BrowserUiState) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             Text(
                 text = "Yar",
                 color = MaterialTheme.colorScheme.onBackground,
@@ -139,16 +143,18 @@ private fun StationHome(
                     modifier = Modifier.weight(1f),
                     onStationSelected = onStationSelected,
                 )
-                TimefreePrograms(
-                    station = state.selectedStation,
-                    selectedDate = state.selectedDate,
-                    programs = state.programs,
-                    programsLoading = state.programsLoading,
-                    switchingTarget = state.switchingTarget,
-                    modifier = Modifier.weight(0.9f),
-                    onDateSelected = onDateSelected,
-                    onProgramSelected = onProgramSelected,
-                )
+                if (state.selectedStation != null) {
+                    TimefreePrograms(
+                        station = state.selectedStation,
+                        selectedDate = state.selectedDate,
+                        programs = state.programs,
+                        programsLoading = state.programsLoading,
+                        switchingTarget = state.switchingTarget,
+                        modifier = Modifier.weight(0.45f),
+                        onDateSelected = onDateSelected,
+                        onProgramSelected = onProgramSelected,
+                    )
+                }
             }
         } else {
             Row(
@@ -270,14 +276,34 @@ private fun RegionSelector(
         Text("Regions", color = MutedText, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(regions, key = { it.id }) { region ->
-                StatusPill(
-                    text = region.name,
+                RegionChip(
+                    region = region,
                     selected = region.id == selectedRegion?.id,
-                    modifier = Modifier.clickable { onRegionSelected(region) },
-                    color = ActiveGreen,
+                    onClick = { onRegionSelected(region) },
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun RegionChip(region: Region, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .widthIn(max = 156.dp)
+            .clickable(onClick = onClick),
+        shape = MaterialTheme.shapes.small,
+        color = if (selected) ActiveGreen.copy(alpha = 0.16f) else ElevatedPanelAlt,
+    ) {
+        Text(
+            text = region.name,
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+            color = if (selected) ActiveGreen else MutedText,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.labelMedium,
+        )
     }
 }
 
@@ -443,7 +469,7 @@ private fun StationRow(station: Station, loading: Boolean, enabled: Boolean, onC
                     } else {
                         Icon(
                             imageVector = Icons.Filled.PlayArrow,
-                            contentDescription = "Play live",
+                            contentDescription = "Play ${station.name} live",
                             modifier = Modifier.size(22.dp),
                             tint = LiveAccent,
                         )
