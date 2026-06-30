@@ -499,11 +499,11 @@ private fun StationRow(station: Station, loading: Boolean, enabled: Boolean, onC
             }
             if (loading) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = LiveRed)
-                    StatusPill(text = "Starting", color = LiveRed)
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = LiveAccent)
+                    StatusPill(text = "Starting", color = LiveAccent)
                 }
             } else {
-                StatusPill(text = "Live", color = LiveRed)
+                StatusPill(text = "Live", color = LiveAccent)
             }
         }
     }

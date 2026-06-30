@@ -11,10 +11,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedIconButton
@@ -27,6 +31,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -73,8 +78,8 @@ internal fun GlassCard(
     Card(
         modifier = modifier,
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = if (highlight) ElevatedPanelAlt else GlassPanel),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (highlight) 6.dp else 2.dp),
+        colors = CardDefaults.cardColors(containerColor = if (highlight) ElevatedPanelAlt else ElevatedPanel),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (highlight) 3.dp else 1.dp),
     ) {
         content()
     }
@@ -92,7 +97,7 @@ internal fun ListSurface(
     Surface(
         modifier = clickableModifier.alpha(if (enabled) 1f else 0.58f),
         shape = MaterialTheme.shapes.medium,
-        tonalElevation = if (selected) 5.dp else 1.dp,
+        tonalElevation = 0.dp,
         color = if (selected) MaterialTheme.colorScheme.primaryContainer else ElevatedPanel,
     ) {
         Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
@@ -110,9 +115,9 @@ internal fun PlaybackImage(
 ) {
     Surface(
         modifier = modifier,
-        shape = MaterialTheme.shapes.large,
-        tonalElevation = 3.dp,
-        color = MaterialTheme.colorScheme.primaryContainer,
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = 1.dp,
+        color = MaterialTheme.colorScheme.surfaceVariant,
     ) {
         if (!url.isNullOrBlank()) {
             AsyncImage(
@@ -127,7 +132,10 @@ internal fun PlaybackImage(
                     .fillMaxSize()
                     .background(
                         Brush.linearGradient(
-                            colors = listOf(MaterialTheme.colorScheme.primaryContainer, ElevatedPanelAlt),
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primaryContainer,
+                                MaterialTheme.colorScheme.surfaceVariant,
+                            ),
                         ),
                     )
                     .padding(12.dp),
@@ -169,7 +177,7 @@ internal fun StatusPill(
 
 @Composable
 internal fun PlayerPrimaryButton(
-    label: String,
+    isPlaying: Boolean,
     onClick: () -> Unit,
     compact: Boolean = false,
     enabled: Boolean = true,
@@ -191,30 +199,31 @@ internal fun PlayerPrimaryButton(
                 color = MaterialTheme.colorScheme.onPrimary,
             )
         } else {
-            Text(
-                text = label,
-                textAlign = TextAlign.Center,
-                fontWeight = FontWeight.Black,
-                style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.headlineSmall,
+            val icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow
+            val description = if (isPlaying) "Pause" else "Play"
+            Icon(
+                imageVector = icon,
+                contentDescription = description,
+                modifier = Modifier.size(if (compact) 22.dp else 30.dp),
             )
         }
     }
 }
 
 @Composable
-internal fun PlayerSecondaryButton(label: String, onClick: () -> Unit, enabled: Boolean = true) {
+internal fun PlayerSecondaryButton(
+    imageVector: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
     OutlinedIconButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier.height(48.dp),
+        modifier = Modifier.size(48.dp),
         colors = IconButtonDefaults.outlinedIconButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
     ) {
-        Text(
-            text = label,
-            textAlign = TextAlign.Center,
-            fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.labelLarge,
-        )
+        Icon(imageVector = imageVector, contentDescription = contentDescription)
     }
 }
 

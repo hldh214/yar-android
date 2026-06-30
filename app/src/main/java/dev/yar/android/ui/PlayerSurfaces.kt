@@ -22,9 +22,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Forward30
+import androidx.compose.material.icons.filled.Replay30
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -143,7 +146,7 @@ internal fun MiniPlayer(
                                 state.isLive -> "LIVE"
                                 else -> "TIMEFREE"
                             },
-                            color = if (state.isLive) LiveRed else MaterialTheme.colorScheme.secondary,
+                            color = if (state.isLive) LiveAccent else MaterialTheme.colorScheme.secondary,
                         )
                         state.station?.name?.let {
                             Text(
@@ -222,7 +225,7 @@ private fun MiniPlayerControls(
             )
         }
         PlayerPrimaryButton(
-            label = if (isPlaying) "II" else "▶",
+            isPlaying = isPlaying,
             onClick = onPauseResume,
             compact = true,
             enabled = !busy,
@@ -418,7 +421,7 @@ private fun StationPlaybackSwitch(
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 if (state.isLive) {
-                    StatusPill(text = "Live now", color = LiveRed)
+                    StatusPill(text = "Live now", color = LiveAccent)
                 } else {
                     val switchingToLive = switchingTarget == PlaybackSwitchTarget.Live(station.id)
                     SwitchActionPill(
@@ -458,7 +461,7 @@ private fun SwitchActionPill(text: String, loading: Boolean, modifier: Modifier 
     Surface(
         modifier = modifier,
         shape = MaterialTheme.shapes.small,
-        color = LiveRed.copy(alpha = 0.16f),
+        color = LiveAccent.copy(alpha = 0.16f),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -469,10 +472,10 @@ private fun SwitchActionPill(text: String, loading: Boolean, modifier: Modifier 
                 CircularProgressIndicator(
                     modifier = Modifier.size(14.dp),
                     strokeWidth = 2.dp,
-                    color = LiveRed,
+                    color = LiveAccent,
                 )
             }
-            Text(text, color = LiveRed, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+            Text(text, color = LiveAccent, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
         }
     }
 }
@@ -623,7 +626,7 @@ private fun PlaybackHero(state: PlaybackUiState) {
             InlineMetaRow {
                 StatusPill(
                     text = if (state.isLive) "LIVE" else "TIMEFREE",
-                    color = if (state.isLive) LiveRed else MaterialTheme.colorScheme.secondary,
+                    color = if (state.isLive) LiveAccent else MaterialTheme.colorScheme.secondary,
                 )
                 state.program?.let { ProgramMetaChips(program = it) }
             }
@@ -676,14 +679,28 @@ private fun PlaybackControls(
                 horizontalArrangement = if (isLive) Arrangement.Center else Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (!isLive) PlayerSecondaryButton(label = "-30", onClick = onSkipBack, enabled = !controlsLocked)
+                if (!isLive) {
+                    PlayerSecondaryButton(
+                        imageVector = Icons.Filled.Replay30,
+                        contentDescription = "Skip back 30 seconds",
+                        onClick = onSkipBack,
+                        enabled = !controlsLocked,
+                    )
+                }
                 PlayerPrimaryButton(
-                    label = if (isPlaying) "II" else "▶",
+                    isPlaying = isPlaying,
                     onClick = onPauseResume,
                     enabled = !isSwitching,
                     loading = isSwitching,
                 )
-                if (!isLive) PlayerSecondaryButton(label = "+30", onClick = onSkipForward, enabled = !controlsLocked)
+                if (!isLive) {
+                    PlayerSecondaryButton(
+                        imageVector = Icons.Filled.Forward30,
+                        contentDescription = "Skip forward 30 seconds",
+                        onClick = onSkipForward,
+                        enabled = !controlsLocked,
+                    )
+                }
             }
 
             if (controlsLocked) {
