@@ -14,5 +14,11 @@ internal fun playbackProgressRatio(positionMs: Long, durationMs: Long): Float {
 internal fun stationSubtitle(asciiName: String, stationId: String): String =
     asciiName.ifBlank { stationId }
 
+internal fun regionPickerLabel(regionName: String?): String =
+    regionName?.takeIf { it.isNotBlank() } ?: "Choose region"
+
+internal fun <T> visibleRecentItems(items: List<T>): List<T> =
+    items.take(10)
+
 internal fun controlsLocked(isSwitching: Boolean, isSeeking: Boolean, isBuffering: Boolean): Boolean =
     isSwitching || isSeeking || isBuffering

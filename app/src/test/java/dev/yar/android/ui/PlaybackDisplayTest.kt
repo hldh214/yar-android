@@ -29,6 +29,23 @@ class PlaybackDisplayTest {
     }
 
     @Test
+    fun `region picker label falls back when region is absent`() {
+        assertEquals("Choose region", regionPickerLabel(null))
+        assertEquals("Tokyo", regionPickerLabel("Tokyo"))
+        assertEquals("Choose region", regionPickerLabel(""))
+        assertEquals("Choose region", regionPickerLabel("   "))
+    }
+
+    @Test
+    fun `recent station limit keeps at most ten items`() {
+        assertEquals(listOf("0", "1", "2"), visibleRecentItems(listOf("0", "1", "2")))
+        assertEquals(
+            (0 until 10).map { it.toString() },
+            visibleRecentItems((0 until 12).map { it.toString() }),
+        )
+    }
+
+    @Test
     fun `player controls lock for switching seeking or buffering`() {
         assertTrue(controlsLocked(isSwitching = true, isSeeking = false, isBuffering = false))
         assertTrue(controlsLocked(isSwitching = false, isSeeking = true, isBuffering = false))
