@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -73,7 +75,10 @@ internal data class PlaybackUiState(
     val songs: List<NoaItem>,
     val songsLoading: Boolean,
     val programs: List<Program>,
-    val stationPrograms: List<Program>,
+    val timefreeDate: BroadcastDate,
+    val timefreePrograms: List<Program>,
+    val timefreeProgramsLoading: Boolean,
+    val timefreeLoadingDates: Set<String>,
     val isPlaying: Boolean,
     val isLive: Boolean,
     val positionMs: Long,
@@ -282,6 +287,7 @@ internal fun PlayerDetailsOverlay(
     visible: Boolean,
     opened: Boolean,
     openingDragProgress: Float,
+    scrollToTopSignal: Int,
     state: PlaybackUiState,
     timetableExpanded: Boolean,
     onToggleTimetable: () -> Unit,
@@ -291,6 +297,7 @@ internal fun PlayerDetailsOverlay(
     onSkipBack: () -> Unit,
     onSkipForward: () -> Unit,
     onPlayLive: (Station) -> Unit,
+    onTimefreeDateSelected: (Station, BroadcastDate) -> Unit,
     onPlayTimefree: (Station, Program) -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
@@ -351,6 +358,11 @@ internal fun PlayerDetailsOverlay(
                     }
                 }
             }
+            LaunchedEffect(scrollToTopSignal) {
+                if (scrollToTopSignal > 0) {
+                    scrollState.animateScrollTo(0)
+                }
+            }
 
             Surface(
                 modifier = Modifier
@@ -398,9 +410,10 @@ internal fun PlayerDetailsOverlay(
                         loading = state.songsLoading,
                         isLive = state.isLive,
                     )
-                    StationPlaybackSwitch(
+                    StationTimefreeSection(
                         state = state,
                         onPlayLive = onPlayLive,
+                        onDateSelected = onTimefreeDateSelected,
                         onPlayTimefree = onPlayTimefree,
                     )
                     state.program?.let { program ->
@@ -420,33 +433,28 @@ internal fun PlayerDetailsOverlay(
 }
 
 @Composable
-private fun StationPlaybackSwitch(
+private fun StationTimefreeSection(
     state: PlaybackUiState,
     onPlayLive: (Station) -> Unit,
+    onDateSelected: (Station, BroadcastDate) -> Unit,
     onPlayTimefree: (Station, Program) -> Unit,
 ) {
     val station = state.station ?: return
     val switchingTarget = state.switchingTarget
-    val timefreePrograms = remember(state.stationPrograms, state.program?.startTime, station.id) {
-        val candidates = state.stationPrograms
+    val timefreePrograms = remember(state.timefreePrograms, station.id) {
+        state.timefreePrograms
             .filter { it.stationId == station.id && !it.isOnAir && it.endTime < currentRadikoTimestamp() }
-        val currentIndex = candidates.indexOfFirst { it.startTime == state.program?.startTime }
-        if (currentIndex >= 0) {
-            val fromIndex = (currentIndex - 2).coerceAtLeast(0)
-            candidates.drop(fromIndex).take(6)
-        } else {
-            candidates.asReversed().take(6)
-        }
+            .asReversed()
     }
 
     PlayerSection {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SectionTitle(
-                title = "${station.name} programs",
+                title = "Timefree from ${station.name}",
                 subtitle = if (state.isLive) {
-                    "Choose a recent program for timefree."
+                    "Pick a recent program from this station."
                 } else {
-                    "Return to live anytime."
+                    "You are listening to Timefree from this station."
                 },
             )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -464,12 +472,22 @@ private fun StationPlaybackSwitch(
             switchingTarget?.let {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
-            if (timefreePrograms.isNotEmpty()) {
-                LazyColumn(
-                    modifier = Modifier.height(178.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(timefreePrograms, key = { it.id }) { program ->
+            TimefreeDateSelector(
+                selectedDate = state.timefreeDate,
+                loadingDates = state.timefreeLoadingDates,
+                enabled = switchingTarget == null,
+                onDateSelected = { onDateSelected(station, it) },
+            )
+            if (state.timefreeProgramsLoading) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Text(
+                    "Loading Timefree programs for ${state.timefreeDate.label}.",
+                    color = MutedText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else if (timefreePrograms.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    timefreePrograms.forEach { program ->
                         QuickTimefreeRow(
                             program = program,
                             selected = !state.isLive && state.program?.startTime == program.startTime,
@@ -480,7 +498,70 @@ private fun StationPlaybackSwitch(
                     }
                 }
             } else {
-                Text("Recent timefree programs are loading or unavailable.", color = MutedText, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "No ended Timefree programs for ${state.timefreeDate.label}.",
+                    color = MutedText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimefreeDateSelector(
+    selectedDate: BroadcastDate,
+    loadingDates: Set<String>,
+    enabled: Boolean,
+    onDateSelected: (BroadcastDate) -> Unit,
+) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(broadcastDates(), key = { it.value }) { date ->
+            val selected = date.value == selectedDate.value
+            TimefreeDateChip(
+                date = date,
+                selected = selected,
+                loading = date.value in loadingDates,
+                enabled = enabled && !selected,
+                onClick = { onDateSelected(date) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimefreeDateChip(
+    date: BroadcastDate,
+    selected: Boolean,
+    loading: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .defaultMinSize(minWidth = 54.dp, minHeight = 44.dp)
+            .clickable(enabled = enabled, onClick = onClick),
+        shape = MaterialTheme.shapes.small,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else ElevatedPanel,
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (loading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(12.dp),
+                        strokeWidth = 2.dp,
+                        color = if (selected) MaterialTheme.colorScheme.primary else MutedText,
+                    )
+                }
+                Text(
+                    text = date.label,
+                    color = if (selected) MaterialTheme.colorScheme.primary else MutedText,
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.labelMedium,
+                )
             }
         }
     }

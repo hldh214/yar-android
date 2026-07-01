@@ -1,9 +1,12 @@
 package dev.yar.android.ui
 
+import androidx.media3.common.MediaItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDateTime
+import java.time.ZoneOffset
 
 class PlaybackDisplayTest {
     @Test
@@ -22,10 +25,44 @@ class PlaybackDisplayTest {
     }
 
     @Test
+    fun `timefree display position uses service content position without adding seek offset again`() {
+        val mediaItem = MediaItem.Builder()
+            .setMediaId("yar_timefree:FMT:20260701000000:20260701000300:120")
+            .build()
+
+        assertEquals(45_000L, displayTimefreePositionMs(contentPositionMs = 45_000L, mediaItem = mediaItem))
+        assertEquals(180_000L, displayTimefreePositionMs(contentPositionMs = 220_000L, mediaItem = mediaItem))
+    }
+
+    @Test
     fun `station subtitle prefers ascii name then station id`() {
         assertEquals("TBS Radio", stationSubtitle(asciiName = "TBS Radio", stationId = "TBS"))
         assertEquals("TBS", stationSubtitle(asciiName = "", stationId = "TBS"))
         assertEquals("TBS", stationSubtitle(asciiName = "   ", stationId = "TBS"))
+    }
+
+    @Test
+    fun `region picker label falls back when region is absent`() {
+        assertEquals("Choose region", regionPickerLabel(null))
+        assertEquals("Tokyo", regionPickerLabel("Tokyo"))
+        assertEquals("Choose region", regionPickerLabel(""))
+        assertEquals("Choose region", regionPickerLabel("   "))
+    }
+
+    @Test
+    fun `broadcast date label uses absolute date with japanese weekday`() {
+        val date = LocalDateTime.of(2026, 7, 1, 12, 0).atOffset(ZoneOffset.ofHours(9))
+
+        assertEquals("7/1(水)", formatBroadcastDateLabel(date))
+    }
+
+    @Test
+    fun `recent station limit keeps at most ten items`() {
+        assertEquals(listOf("0", "1", "2"), visibleRecentItems(listOf("0", "1", "2")))
+        assertEquals(
+            (0 until 10).map { it.toString() },
+            visibleRecentItems((0 until 12).map { it.toString() }),
+        )
     }
 
     @Test
@@ -34,5 +71,11 @@ class PlaybackDisplayTest {
         assertTrue(controlsLocked(isSwitching = false, isSeeking = true, isBuffering = false))
         assertTrue(controlsLocked(isSwitching = false, isSeeking = false, isBuffering = true))
         assertFalse(controlsLocked(isSwitching = false, isSeeking = false, isBuffering = false))
+    }
+
+    @Test
+    fun `scroll to top signal only advances for detail playback actions`() {
+        assertEquals(8, nextScrollToTopSignal(current = 7, shouldScroll = true))
+        assertEquals(7, nextScrollToTopSignal(current = 7, shouldScroll = false))
     }
 }
