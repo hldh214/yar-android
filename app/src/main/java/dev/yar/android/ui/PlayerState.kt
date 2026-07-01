@@ -171,11 +171,19 @@ internal fun MediaController.displayPositionMs(): Long {
     val timefree = currentMediaItem?.timefreeInfo()
     val position = currentPosition.coerceAtLeast(0L)
     return if (timefree != null) {
-        (timefree.seekOffsetMs + position).coerceIn(0L, timefree.durationMs)
+        displayTimefreePositionMs(position, timefree)
     } else {
         position
     }
 }
+
+internal fun displayTimefreePositionMs(contentPositionMs: Long, mediaItem: MediaItem): Long {
+    val timefree = mediaItem.timefreeInfo() ?: return contentPositionMs.coerceAtLeast(0L)
+    return displayTimefreePositionMs(contentPositionMs, timefree)
+}
+
+private fun displayTimefreePositionMs(contentPositionMs: Long, timefree: TimefreeInfo): Long =
+    contentPositionMs.coerceIn(0L, timefree.durationMs.coerceAtLeast(0L))
 
 internal fun MediaController.displayDurationMs(): Long {
     val timefree = currentMediaItem?.timefreeInfo()
@@ -206,7 +214,6 @@ internal fun MediaItem.playbackEndTime(): String? {
 
 private data class TimefreeInfo(
     val durationMs: Long,
-    val seekOffsetMs: Long,
 )
 
 private fun MediaItem.timefreeInfo(): TimefreeInfo? {
@@ -215,6 +222,5 @@ private fun MediaItem.timefreeInfo(): TimefreeInfo? {
     val parts = mediaId.removePrefix(YarMediaLibraryService.TIMEFREE_PREFIX).split(":")
     if (parts.size < 3) return null
     val durationMs = radikoDurationMs(parts[1], parts[2]) ?: return null
-    val seekOffsetMs = parts.getOrNull(3)?.toLongOrNull()?.coerceAtLeast(0L)?.times(1000L) ?: 0L
-    return TimefreeInfo(durationMs = durationMs, seekOffsetMs = seekOffsetMs)
+    return TimefreeInfo(durationMs = durationMs)
 }

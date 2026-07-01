@@ -1,5 +1,6 @@
 package dev.yar.android.ui
 
+import androidx.media3.common.MediaItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -21,6 +22,16 @@ class PlaybackDisplayTest {
         assertEquals(0f, playbackProgressRatio(positionMs = -100L, durationMs = 10_000L))
         assertEquals(0.25f, playbackProgressRatio(positionMs = 2_500L, durationMs = 10_000L))
         assertEquals(1f, playbackProgressRatio(positionMs = 12_000L, durationMs = 10_000L))
+    }
+
+    @Test
+    fun `timefree display position uses service content position without adding seek offset again`() {
+        val mediaItem = MediaItem.Builder()
+            .setMediaId("yar_timefree:FMT:20260701000000:20260701000300:120")
+            .build()
+
+        assertEquals(45_000L, displayTimefreePositionMs(contentPositionMs = 45_000L, mediaItem = mediaItem))
+        assertEquals(180_000L, displayTimefreePositionMs(contentPositionMs = 220_000L, mediaItem = mediaItem))
     }
 
     @Test

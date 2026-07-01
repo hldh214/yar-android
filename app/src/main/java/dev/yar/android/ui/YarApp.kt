@@ -217,12 +217,13 @@ fun YarApp(
 
     fun seekTimefree(seekPositionMs: Long) {
         playbackError = null
-        pendingSeekPositionMs = seekPositionMs.coerceIn(0L, playerState.durationMs.coerceAtLeast(0L))
+        val clampedSeekPositionMs = seekPositionMs.coerceIn(0L, playerState.durationMs.coerceAtLeast(0L))
+        pendingSeekPositionMs = clampedSeekPositionMs
         pendingSeekMediaId = playerState.mediaId
         context.startService(
             Intent(context, YarMediaLibraryService::class.java)
                 .setAction(YarMediaLibraryService.ACTION_SEEK_TIMEFREE)
-                .putExtra(YarMediaLibraryService.EXTRA_SEEK_SECONDS, seekPositionMs / 1000L),
+                .putExtra(YarMediaLibraryService.EXTRA_SEEK_SECONDS, clampedSeekPositionMs / 1000L),
         )
     }
 
