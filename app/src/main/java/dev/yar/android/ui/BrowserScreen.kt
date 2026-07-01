@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -42,10 +43,6 @@ internal data class BrowserUiState(
     val regions: List<Region>,
     val recentStations: List<Station>,
     val selectedRegion: Region?,
-    val selectedStation: Station?,
-    val selectedDate: BroadcastDate,
-    val programs: List<Program>,
-    val programsLoading: Boolean,
     val switchingTarget: PlaybackSwitchTarget?,
     val error: String?,
 )
@@ -98,12 +95,37 @@ private fun HomeHeaderRow(state: BrowserUiState, onOpenRegionPicker: () -> Unit)
                 style = MaterialTheme.typography.headlineLarge,
             )
         }
-        StatusPill(
-            text = regionPickerLabel(state.selectedRegion?.name),
+        HomeRegionButton(
+            label = regionPickerLabel(state.selectedRegion?.name),
             selected = state.selectedRegion != null,
-            modifier = Modifier.clickable(onClick = onOpenRegionPicker),
-            color = ActiveGreen,
+            onClick = onOpenRegionPicker,
         )
+    }
+}
+
+@Composable
+private fun HomeRegionButton(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .widthIn(max = 180.dp)
+            .defaultMinSize(minHeight = 48.dp)
+            .clickable(onClick = onClick),
+        shape = MaterialTheme.shapes.small,
+        color = if (selected) ActiveGreen.copy(alpha = 0.16f) else ElevatedPanelAlt,
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = label,
+                color = if (selected) ActiveGreen else MutedText,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
     }
 }
 
@@ -316,6 +338,7 @@ private fun RegionPickerRow(region: Region, selected: Boolean, onClick: () -> Un
         ) {
             Text(
                 text = region.name,
+                modifier = Modifier.weight(1f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 fontWeight = FontWeight.SemiBold,
