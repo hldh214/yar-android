@@ -11,9 +11,22 @@ internal fun broadcastDates(): List<BroadcastDate> {
         val date = today.minusDays(offset)
         BroadcastDate(
             value = "%04d%02d%02d".format(date.year, date.monthValue, date.dayOfMonth),
-            label = if (offset == 0L) "Today" else "-${offset}d",
+            label = formatBroadcastDateLabel(date),
         )
     }
+}
+
+internal fun formatBroadcastDateLabel(date: java.time.OffsetDateTime): String {
+    val weekday = when (date.dayOfWeek) {
+        java.time.DayOfWeek.MONDAY -> "月"
+        java.time.DayOfWeek.TUESDAY -> "火"
+        java.time.DayOfWeek.WEDNESDAY -> "水"
+        java.time.DayOfWeek.THURSDAY -> "木"
+        java.time.DayOfWeek.FRIDAY -> "金"
+        java.time.DayOfWeek.SATURDAY -> "土"
+        java.time.DayOfWeek.SUNDAY -> "日"
+    }
+    return "${date.monthValue}/${date.dayOfMonth}($weekday)"
 }
 
 internal fun currentRadikoTimestamp(): String {

@@ -4,6 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDateTime
+import java.time.ZoneOffset
 
 class PlaybackDisplayTest {
     @Test
@@ -34,6 +36,13 @@ class PlaybackDisplayTest {
         assertEquals("Tokyo", regionPickerLabel("Tokyo"))
         assertEquals("Choose region", regionPickerLabel(""))
         assertEquals("Choose region", regionPickerLabel("   "))
+    }
+
+    @Test
+    fun `broadcast date label uses absolute date with japanese weekday`() {
+        val date = LocalDateTime.of(2026, 7, 1, 12, 0).atOffset(ZoneOffset.ofHours(9))
+
+        assertEquals("7/1(水)", formatBroadcastDateLabel(date))
     }
 
     @Test

@@ -479,11 +479,8 @@ private fun StationTimefreeSection(
                     style = MaterialTheme.typography.bodySmall,
                 )
             } else if (timefreePrograms.isNotEmpty()) {
-                LazyColumn(
-                    modifier = Modifier.height(178.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(timefreePrograms, key = { it.id }) { program ->
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    timefreePrograms.forEach { program ->
                         QuickTimefreeRow(
                             program = program,
                             selected = !state.isLive && state.program?.startTime == program.startTime,
