@@ -398,7 +398,7 @@ internal fun PlayerDetailsOverlay(
                         loading = state.songsLoading,
                         isLive = state.isLive,
                     )
-                    StationPlaybackSwitch(
+                    StationTimefreeSection(
                         state = state,
                         onPlayLive = onPlayLive,
                         onPlayTimefree = onPlayTimefree,
@@ -420,7 +420,7 @@ internal fun PlayerDetailsOverlay(
 }
 
 @Composable
-private fun StationPlaybackSwitch(
+private fun StationTimefreeSection(
     state: PlaybackUiState,
     onPlayLive: (Station) -> Unit,
     onPlayTimefree: (Station, Program) -> Unit,
@@ -442,11 +442,11 @@ private fun StationPlaybackSwitch(
     PlayerSection {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SectionTitle(
-                title = "${station.name} programs",
+                title = "Timefree from ${station.name}",
                 subtitle = if (state.isLive) {
-                    "Choose a recent program for timefree."
+                    "Pick a recent program from this station."
                 } else {
-                    "Return to live anytime."
+                    "You are listening to Timefree from this station."
                 },
             )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -480,7 +480,11 @@ private fun StationPlaybackSwitch(
                     }
                 }
             } else {
-                Text("Recent timefree programs are loading or unavailable.", color = MutedText, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "Recent Timefree programs for this station are loading or unavailable.",
+                    color = MutedText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }
