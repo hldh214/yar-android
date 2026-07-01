@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -73,7 +75,9 @@ internal data class PlaybackUiState(
     val songs: List<NoaItem>,
     val songsLoading: Boolean,
     val programs: List<Program>,
-    val stationPrograms: List<Program>,
+    val timefreeDate: BroadcastDate,
+    val timefreePrograms: List<Program>,
+    val timefreeProgramsLoading: Boolean,
     val isPlaying: Boolean,
     val isLive: Boolean,
     val positionMs: Long,
@@ -291,6 +295,7 @@ internal fun PlayerDetailsOverlay(
     onSkipBack: () -> Unit,
     onSkipForward: () -> Unit,
     onPlayLive: (Station) -> Unit,
+    onTimefreeDateSelected: (Station, BroadcastDate) -> Unit,
     onPlayTimefree: (Station, Program) -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
@@ -401,6 +406,7 @@ internal fun PlayerDetailsOverlay(
                     StationTimefreeSection(
                         state = state,
                         onPlayLive = onPlayLive,
+                        onDateSelected = onTimefreeDateSelected,
                         onPlayTimefree = onPlayTimefree,
                     )
                     state.program?.let { program ->
@@ -423,20 +429,15 @@ internal fun PlayerDetailsOverlay(
 private fun StationTimefreeSection(
     state: PlaybackUiState,
     onPlayLive: (Station) -> Unit,
+    onDateSelected: (Station, BroadcastDate) -> Unit,
     onPlayTimefree: (Station, Program) -> Unit,
 ) {
     val station = state.station ?: return
     val switchingTarget = state.switchingTarget
-    val timefreePrograms = remember(state.stationPrograms, state.program?.startTime, station.id) {
-        val candidates = state.stationPrograms
+    val timefreePrograms = remember(state.timefreePrograms, station.id) {
+        state.timefreePrograms
             .filter { it.stationId == station.id && !it.isOnAir && it.endTime < currentRadikoTimestamp() }
-        val currentIndex = candidates.indexOfFirst { it.startTime == state.program?.startTime }
-        if (currentIndex >= 0) {
-            val fromIndex = (currentIndex - 2).coerceAtLeast(0)
-            candidates.drop(fromIndex).take(6)
-        } else {
-            candidates.asReversed().take(6)
-        }
+            .asReversed()
     }
 
     PlayerSection {
@@ -464,7 +465,20 @@ private fun StationTimefreeSection(
             switchingTarget?.let {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
-            if (timefreePrograms.isNotEmpty()) {
+            TimefreeDateSelector(
+                selectedDate = state.timefreeDate,
+                loading = state.timefreeProgramsLoading,
+                enabled = switchingTarget == null,
+                onDateSelected = { onDateSelected(station, it) },
+            )
+            if (state.timefreeProgramsLoading) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Text(
+                    "Loading Timefree programs for ${state.timefreeDate.label}.",
+                    color = MutedText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else if (timefreePrograms.isNotEmpty()) {
                 LazyColumn(
                     modifier = Modifier.height(178.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -481,11 +495,59 @@ private fun StationTimefreeSection(
                 }
             } else {
                 Text(
-                    "Recent Timefree programs for this station are loading or unavailable.",
+                    "No ended Timefree programs for ${state.timefreeDate.label}.",
                     color = MutedText,
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun TimefreeDateSelector(
+    selectedDate: BroadcastDate,
+    loading: Boolean,
+    enabled: Boolean,
+    onDateSelected: (BroadcastDate) -> Unit,
+) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(broadcastDates(), key = { it.value }) { date ->
+            val selected = date.value == selectedDate.value
+            TimefreeDateChip(
+                date = date,
+                selected = selected,
+                enabled = enabled && !loading && !selected,
+                onClick = { onDateSelected(date) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimefreeDateChip(
+    date: BroadcastDate,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .defaultMinSize(minWidth = 54.dp, minHeight = 44.dp)
+            .clickable(enabled = enabled, onClick = onClick),
+        shape = MaterialTheme.shapes.small,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else ElevatedPanel,
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = date.label,
+                color = if (selected) MaterialTheme.colorScheme.primary else MutedText,
+                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.labelMedium,
+            )
         }
     }
 }
