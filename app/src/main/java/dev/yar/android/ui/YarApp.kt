@@ -42,6 +42,9 @@ import kotlinx.coroutines.launch
 private const val PLAYBACK_SWITCH_TIMEOUT_MS = 20_000L
 private const val PLAYBACK_SEEK_TIMEOUT_MS = 12_000L
 
+internal fun nextScrollToTopSignal(current: Int, shouldScroll: Boolean): Int =
+    if (shouldScroll) current + 1 else current
+
 @Composable
 fun YarApp(
     showNotificationPermissionPrompt: Boolean = false,
@@ -168,7 +171,7 @@ fun YarApp(
         prefetchTimefreePrograms(station, listOf(date))
     }
 
-    fun playLive(station: Station) {
+    fun playLive(station: Station, scrollDetailsToTop: Boolean = false) {
         playbackError = null
         switchingTarget = PlaybackSwitchTarget.Live(station.id)
         refreshRecentStations(station.id)
@@ -179,6 +182,10 @@ fun YarApp(
         playingProgram = null
         selectedDate = today
         prefetchTimefreePrograms(station = station, dates = listOf(today), selectOnAir = true)
+        if (scrollDetailsToTop) {
+            showPlayerDetails = true
+            playerDetailsScrollToTopSignal = nextScrollToTopSignal(playerDetailsScrollToTopSignal, shouldScroll = true)
+        }
         context.startService(
             Intent(context, YarMediaLibraryService::class.java)
                 .setAction(YarMediaLibraryService.ACTION_PLAY_LIVE)
@@ -450,7 +457,7 @@ fun YarApp(
                     onSeek = { seekTimefree(it) },
                     onSkipBack = { skipTimefree(-30_000L) },
                     onSkipForward = { skipTimefree(30_000L) },
-                    onPlayLive = { playLive(it) },
+                    onPlayLive = { playLive(it, scrollDetailsToTop = true) },
                     onTimefreeDateSelected = { station, date -> selectTimefreeDate(station, date) },
                     onPlayTimefree = { station, program -> playTimefree(station, program) },
                 )

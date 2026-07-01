@@ -72,4 +72,10 @@ class PlaybackDisplayTest {
         assertTrue(controlsLocked(isSwitching = false, isSeeking = false, isBuffering = true))
         assertFalse(controlsLocked(isSwitching = false, isSeeking = false, isBuffering = false))
     }
+
+    @Test
+    fun `scroll to top signal only advances for detail playback actions`() {
+        assertEquals(8, nextScrollToTopSignal(current = 7, shouldScroll = true))
+        assertEquals(7, nextScrollToTopSignal(current = 7, shouldScroll = false))
+    }
 }
