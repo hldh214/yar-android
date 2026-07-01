@@ -69,6 +69,7 @@ fun YarApp(
     var pendingSeekMediaId by remember { mutableStateOf<String?>(null) }
     var switchingTarget by remember { mutableStateOf<PlaybackSwitchTarget?>(null) }
     var showPlayerDetails by remember { mutableStateOf(false) }
+    var showRegionPicker by remember { mutableStateOf(false) }
     var playerDetailsOpenDragProgress by remember { mutableStateOf(0f) }
     var showDetailsTimetable by remember { mutableStateOf(false) }
     var playbackError by remember { mutableStateOf<String?>(null) }
@@ -353,23 +354,8 @@ fun YarApp(
                         modifier = Modifier
                             .weight(1f)
                             .heightIn(min = 360.dp),
-                        onRegionSelected = { selectedRegion = it },
+                        onOpenRegionPicker = { showRegionPicker = true },
                         onStationSelected = { playLive(it) },
-                        onDateSelected = { dateOption ->
-                            selectedDate = dateOption
-                            programs = emptyList()
-                            programsLoading = true
-                            selectedStation?.let { station ->
-                                scope.launch {
-                                    programs = runCatching { client.getPrograms(station.id, dateOption.value) }
-                                        .getOrDefault(emptyList())
-                                    programsLoading = false
-                                }
-                            } ?: run {
-                                programsLoading = false
-                            }
-                        },
-                        onProgramSelected = { station, program -> playTimefree(station, program) },
                     )
                     if (playingStation != null || playerState.title != null) {
                         MiniPlayer(
@@ -382,6 +368,17 @@ fun YarApp(
                         )
                     }
                 }
+
+                RegionPickerSheet(
+                    visible = showRegionPicker,
+                    regions = regions,
+                    selectedRegion = selectedRegion,
+                    onDismiss = { showRegionPicker = false },
+                    onRegionSelected = { region ->
+                        selectedRegion = region
+                        showRegionPicker = false
+                    },
+                )
 
                 PlayerDetailsOverlay(
                     visible = showPlayerDetails || playerDetailsOpenDragProgress > 0f,

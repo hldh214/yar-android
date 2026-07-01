@@ -5,13 +5,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -19,10 +20,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,16 +54,14 @@ internal data class BrowserUiState(
 internal fun BrowserScreen(
     state: BrowserUiState,
     modifier: Modifier = Modifier,
-    onRegionSelected: (Region) -> Unit,
+    onOpenRegionPicker: () -> Unit,
     onStationSelected: (Station) -> Unit,
-    onDateSelected: (BroadcastDate) -> Unit,
-    onProgramSelected: (Station, Program) -> Unit,
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        HomeHeaderRow(state)
+        HomeHeaderRow(state = state, onOpenRegionPicker = onOpenRegionPicker)
         when {
             state.error != null -> EmptyState(
                 title = "Stations did not load",
@@ -72,17 +74,14 @@ internal fun BrowserScreen(
             else -> StationHome(
                 state = state,
                 modifier = Modifier.weight(1f),
-                onRegionSelected = onRegionSelected,
                 onStationSelected = onStationSelected,
-                onDateSelected = onDateSelected,
-                onProgramSelected = onProgramSelected,
             )
         }
     }
 }
 
 @Composable
-private fun HomeHeaderRow(state: BrowserUiState) {
+private fun HomeHeaderRow(state: BrowserUiState, onOpenRegionPicker: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -98,17 +97,13 @@ private fun HomeHeaderRow(state: BrowserUiState) {
                 fontWeight = FontWeight.Black,
                 style = MaterialTheme.typography.headlineLarge,
             )
-            Text(
-                text = state.selectedRegion?.name ?: "Choose a region",
-                color = MutedText,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodyMedium,
-            )
         }
-        state.selectedStation?.let {
-            StatusPill(text = it.id, color = ActiveGreen)
-        }
+        StatusPill(
+            text = regionPickerLabel(state.selectedRegion?.name),
+            selected = state.selectedRegion != null,
+            modifier = Modifier.clickable(onClick = onOpenRegionPicker),
+            color = ActiveGreen,
+        )
     }
 }
 
@@ -116,10 +111,7 @@ private fun HomeHeaderRow(state: BrowserUiState) {
 private fun StationHome(
     state: BrowserUiState,
     modifier: Modifier = Modifier,
-    onRegionSelected: (Region) -> Unit,
     onStationSelected: (Station) -> Unit,
-    onDateSelected: (BroadcastDate) -> Unit,
-    onProgramSelected: (Station, Program) -> Unit,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         if (maxWidth < 680.dp) {
@@ -132,29 +124,12 @@ private fun StationHome(
                     switchingTarget = state.switchingTarget,
                     onStationSelected = onStationSelected,
                 )
-                RegionSelector(
-                    regions = state.regions,
-                    selectedRegion = state.selectedRegion,
-                    onRegionSelected = onRegionSelected,
-                )
                 StationList(
                     region = state.selectedRegion,
                     switchingTarget = state.switchingTarget,
                     modifier = Modifier.weight(1f),
                     onStationSelected = onStationSelected,
                 )
-                if (state.selectedStation != null) {
-                    TimefreePrograms(
-                        station = state.selectedStation,
-                        selectedDate = state.selectedDate,
-                        programs = state.programs,
-                        programsLoading = state.programsLoading,
-                        switchingTarget = state.switchingTarget,
-                        modifier = Modifier.weight(0.45f),
-                        onDateSelected = onDateSelected,
-                        onProgramSelected = onProgramSelected,
-                    )
-                }
             }
         } else {
             Row(
@@ -170,27 +145,12 @@ private fun StationHome(
                         switchingTarget = state.switchingTarget,
                         onStationSelected = onStationSelected,
                     )
-                    RegionSelector(
-                        regions = state.regions,
-                        selectedRegion = state.selectedRegion,
-                        onRegionSelected = onRegionSelected,
-                    )
                 }
                 StationList(
                     region = state.selectedRegion,
                     switchingTarget = state.switchingTarget,
                     modifier = Modifier.weight(1.25f),
                     onStationSelected = onStationSelected,
-                )
-                TimefreePrograms(
-                    station = state.selectedStation,
-                    selectedDate = state.selectedDate,
-                    programs = state.programs,
-                    programsLoading = state.programsLoading,
-                    switchingTarget = state.switchingTarget,
-                    modifier = Modifier.weight(1f),
-                    onDateSelected = onDateSelected,
-                    onProgramSelected = onProgramSelected,
                 )
             }
         }
@@ -207,7 +167,7 @@ private fun RecentStationsRail(
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Recent", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(stations.take(10), key = { it.id }) { station ->
+            items(visibleRecentItems(stations), key = { it.id }) { station ->
                 RecentStationCard(
                     station = station,
                     loading = switchingTarget == PlaybackSwitchTarget.Live(station.id),
@@ -265,49 +225,6 @@ private fun RecentStationCard(station: Station, loading: Boolean, enabled: Boole
 }
 
 @Composable
-private fun RegionSelector(
-    regions: List<Region>,
-    selectedRegion: Region?,
-    onRegionSelected: (Region) -> Unit,
-) {
-    Column(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text("Regions", color = MutedText, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(regions, key = { it.id }) { region ->
-                RegionChip(
-                    region = region,
-                    selected = region.id == selectedRegion?.id,
-                    onClick = { onRegionSelected(region) },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RegionChip(region: Region, selected: Boolean, onClick: () -> Unit) {
-    Surface(
-        modifier = Modifier
-            .widthIn(max = 156.dp)
-            .clickable(onClick = onClick),
-        shape = MaterialTheme.shapes.small,
-        color = if (selected) ActiveGreen.copy(alpha = 0.16f) else ElevatedPanelAlt,
-    ) {
-        Text(
-            text = region.name,
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-            color = if (selected) ActiveGreen else MutedText,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.labelMedium,
-        )
-    }
-}
-
-@Composable
 private fun StationList(
     region: Region?,
     switchingTarget: PlaybackSwitchTarget?,
@@ -348,81 +265,64 @@ private fun StationList(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimefreePrograms(
-    station: Station?,
-    selectedDate: BroadcastDate,
-    programs: List<Program>,
-    programsLoading: Boolean,
-    switchingTarget: PlaybackSwitchTarget?,
-    modifier: Modifier = Modifier,
-    onDateSelected: (BroadcastDate) -> Unit,
-    onProgramSelected: (Station, Program) -> Unit,
+internal fun RegionPickerSheet(
+    visible: Boolean,
+    regions: List<Region>,
+    selectedRegion: Region?,
+    onDismiss: () -> Unit,
+    onRegionSelected: (Region) -> Unit,
 ) {
-    val endedPrograms = programs.filter { !it.isOnAir && it.endTime < currentRadikoTimestamp() }
-        .takeLast(10)
-        .asReversed()
-
-    LazyColumn(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+    if (!visible) return
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
     ) {
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "Timefree",
-                    color = MutedText,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.labelLarge,
-                )
-                station?.let {
-                    Text(
-                        text = it.name,
-                        color = MutedText,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodySmall,
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Choose region", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+            LazyColumn(
+                modifier = Modifier.heightIn(max = 420.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(regions, key = { it.id }) { region ->
+                    RegionPickerRow(
+                        region = region,
+                        selected = region.id == selectedRegion?.id,
+                        onClick = { onRegionSelected(region) },
                     )
-                }
-                if (station != null) {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(broadcastDates(), key = { it.value }) { date ->
-                            StatusPill(
-                                text = date.label,
-                                selected = date.value == selectedDate.value,
-                                modifier = Modifier.clickable(enabled = switchingTarget == null) { onDateSelected(date) },
-                            )
-                        }
-                    }
                 }
             }
         }
-        when {
-            station == null -> item {
-                EmptyState(
-                    title = "Choose a station",
-                    message = "Timefree episodes appear here after selecting a station.",
-                )
-            }
-            programsLoading -> item {
-                EmptyState(
-                    title = "Loading timefree",
-                    message = "Fetching recent programs for ${station.name}.",
-                )
-            }
-            endedPrograms.isEmpty() -> item {
-                EmptyState(
-                    title = "No ended programs",
-                    message = "Try a different broadcast date.",
-                )
-            }
-            else -> items(endedPrograms, key = { it.id }) { program ->
-                ProgramRow(
-                    program = program,
-                    loading = switchingTarget == PlaybackSwitchTarget.Timefree(station.id, program.startTime),
-                    enabled = switchingTarget == null,
-                    onClick = { onProgramSelected(station, program) },
-                )
+    }
+}
+
+@Composable
+private fun RegionPickerRow(region: Region, selected: Boolean, onClick: () -> Unit) {
+    ListSurface(selected = selected, onClick = onClick) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = 48.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = region.name,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            if (selected) {
+                StatusPill(text = "Selected", color = ActiveGreen)
             }
         }
     }
