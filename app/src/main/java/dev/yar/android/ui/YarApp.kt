@@ -58,10 +58,7 @@ fun YarApp(
     var selectedRegion by remember { mutableStateOf<Region?>(null) }
     var selectedStation by remember { mutableStateOf<Station?>(null) }
     var selectedDate by remember { mutableStateOf(broadcastDates().first()) }
-    var programs by remember { mutableStateOf<List<Program>>(emptyList()) }
-    var programsLoading by remember { mutableStateOf(false) }
-    var programsStationId by remember { mutableStateOf<String?>(null) }
-    var timefreeProgramsLoadId by remember { mutableStateOf(0L) }
+    var timefreeProgramsCache by remember { mutableStateOf(TimefreeProgramsCache()) }
     var playingStation by remember { mutableStateOf<Station?>(null) }
     var playingProgram by remember { mutableStateOf<Program?>(null) }
     var playbackPrograms by remember { mutableStateOf<List<Program>>(emptyList()) }
@@ -73,6 +70,7 @@ fun YarApp(
     var showPlayerDetails by remember { mutableStateOf(false) }
     var showRegionPicker by remember { mutableStateOf(false) }
     var playerDetailsOpenDragProgress by remember { mutableStateOf(0f) }
+    var playerDetailsScrollToTopSignal by remember { mutableStateOf(0) }
     var showDetailsTimetable by remember { mutableStateOf(false) }
     var playbackError by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -91,6 +89,13 @@ fun YarApp(
     val currentPlayingProgram = matchedPlayingProgram
         ?: playerState.playbackStartTime?.let { startTime -> playbackPrograms.firstOrNull { it.startTime == startTime } }
         ?: playbackPrograms.firstOrNull { it.isOnAir }
+    val selectedPrograms = currentPlayingStation
+        ?.let { station -> timefreeProgramsCache.programsFor(station.id, selectedDate.value) }
+        .orEmpty()
+    val timefreeLoadingDates = currentPlayingStation
+        ?.takeIf { station -> timefreeProgramsCache.stationId == station.id }
+        ?.let { timefreeProgramsCache.loadingDates }
+        .orEmpty()
     val songProgramStartTime = playerState.playbackStartTime ?: currentPlayingProgram?.startTime
     val songProgramEndTime = playerState.playbackEndTime ?: currentPlayingProgram?.endTime
     val currentSong = remember(playbackSongs, playerState.isLive, songProgramStartTime, playerState.positionMs) {
@@ -110,10 +115,13 @@ fun YarApp(
         currentSong = currentSong,
         songs = playbackSongs,
         songsLoading = songsLoading,
-        programs = programs,
+        programs = selectedPrograms,
         timefreeDate = selectedDate,
-        timefreePrograms = if (programsStationId == currentPlayingStation?.id) programs else emptyList(),
-        timefreeProgramsLoading = programsLoading,
+        timefreePrograms = selectedPrograms,
+        timefreeProgramsLoading = currentPlayingStation
+            ?.let { station -> timefreeProgramsCache.isLoading(station.id, selectedDate.value) }
+            ?: false,
+        timefreeLoadingDates = timefreeLoadingDates,
         isPlaying = playerState.isPlaying,
         isLive = playerState.isLive,
         positionMs = pendingSeekPositionMs ?: playerState.positionMs,
@@ -129,27 +137,35 @@ fun YarApp(
         recentStationIds = recentStationsStore.getStationIds()
     }
 
-    fun loadTimefreePrograms(station: Station, date: BroadcastDate, selectOnAir: Boolean = false) {
+    fun prefetchTimefreePrograms(station: Station, dates: List<BroadcastDate> = broadcastDates(), selectOnAir: Boolean = false) {
         selectedStation = station
         selectedRegion = regions.firstOrNull { region -> region.stations.any { it.id == station.id } } ?: selectedRegion
-        selectedDate = date
-        programs = emptyList()
-        programsStationId = station.id
-        programsLoading = true
-        val loadId = timefreeProgramsLoadId + 1L
-        timefreeProgramsLoadId = loadId
-        scope.launch {
-            val loadedPrograms = runCatching { client.getPrograms(station.id, date.value) }.getOrDefault(emptyList())
-            if (timefreeProgramsLoadId == loadId && selectedStation?.id == station.id && selectedDate.value == date.value) {
-                programs = loadedPrograms
-                if (selectOnAir) {
+        val datesToLoad = timefreeProgramsCache.datesNeedingLoad(station.id, dates)
+        if (datesToLoad.isEmpty()) {
+            if (selectOnAir) {
+                playingProgram = timefreeProgramsCache.programsFor(station.id, selectedDate.value).firstOrNull { it.isOnAir }
+            }
+            return
+        }
+        timefreeProgramsCache = datesToLoad.fold(timefreeProgramsCache) { cache, date ->
+            cache.startLoading(station.id, date.value)
+        }
+        datesToLoad.forEach { date ->
+            scope.launch {
+                val loadedPrograms = runCatching { client.getPrograms(station.id, date.value) }.getOrDefault(emptyList())
+                timefreeProgramsCache = timefreeProgramsCache.finishLoading(station.id, date.value, loadedPrograms)
+                if (selectOnAir && date.value == selectedDate.value && selectedStation?.id == station.id) {
                     playingProgram = loadedPrograms.firstOrNull { it.isOnAir }
                 }
             }
-            if (timefreeProgramsLoadId == loadId) {
-                programsLoading = false
-            }
         }
+    }
+
+    fun selectTimefreeDate(station: Station, date: BroadcastDate) {
+        selectedStation = station
+        selectedRegion = regions.firstOrNull { region -> region.stations.any { it.id == station.id } } ?: selectedRegion
+        selectedDate = date
+        prefetchTimefreePrograms(station, listOf(date))
     }
 
     fun playLive(station: Station) {
@@ -161,7 +177,8 @@ fun YarApp(
         val today = broadcastDates().first()
         playingStation = station
         playingProgram = null
-        loadTimefreePrograms(station = station, date = today, selectOnAir = true)
+        selectedDate = today
+        prefetchTimefreePrograms(station = station, dates = listOf(today), selectOnAir = true)
         context.startService(
             Intent(context, YarMediaLibraryService::class.java)
                 .setAction(YarMediaLibraryService.ACTION_PLAY_LIVE)
@@ -175,8 +192,11 @@ fun YarApp(
         refreshRecentStations(station.id)
         playingStation = station
         playingProgram = program
-        programsStationId = station.id
         broadcastDates().firstOrNull { it.value == program.startTime.take(8) }?.let { selectedDate = it }
+        timefreeProgramsCache = timefreeProgramsCache.rememberProgram(station.id, program)
+        showDetailsTimetable = false
+        showPlayerDetails = true
+        playerDetailsScrollToTopSignal += 1
         context.startService(
             Intent(context, YarMediaLibraryService::class.java)
                 .setAction(YarMediaLibraryService.ACTION_PLAY_TIMEFREE)
@@ -302,6 +322,13 @@ fun YarApp(
         recentStationIds = recentStationsStore.getStationIds()
     }
 
+    LaunchedEffect(showPlayerDetails, currentPlayingStation?.id) {
+        val station = currentPlayingStation ?: return@LaunchedEffect
+        if (showPlayerDetails) {
+            prefetchTimefreePrograms(station = station)
+        }
+    }
+
     LaunchedEffect(playerState.stationId, playerState.mediaId) {
         val stationId = playerState.stationId ?: return@LaunchedEffect
         if (playingProgram?.stationId != stationId) {
@@ -313,16 +340,11 @@ fun YarApp(
         val playbackBroadcastDate = playbackDate
             ?.let { value -> broadcastDates().firstOrNull { it.value == value } }
             ?: broadcastDates().first()
-        if (programsStationId != stationId) {
-            timefreeProgramsLoadId += 1L
-            programsLoading = false
-            selectedDate = playbackBroadcastDate
-            programs = loadedPrograms
-            programsStationId = stationId
-        } else if (!programsLoading && (programs.isEmpty() || selectedDate.value == playbackBroadcastDate.value || playbackDate != null)) {
-            selectedDate = playbackBroadcastDate
-            programs = loadedPrograms
-            programsStationId = stationId
+        selectedDate = playbackBroadcastDate
+        timefreeProgramsCache = if (timefreeProgramsCache.stationId == stationId) {
+            timefreeProgramsCache.finishLoading(stationId, playbackBroadcastDate.value, loadedPrograms)
+        } else {
+            TimefreeProgramsCache(stationId = stationId).finishLoading(stationId, playbackBroadcastDate.value, loadedPrograms)
         }
         playingProgram = when {
             playerState.playbackStartTime != null -> loadedPrograms.firstOrNull { it.startTime == playerState.playbackStartTime }
@@ -416,6 +438,7 @@ fun YarApp(
                     visible = showPlayerDetails || playerDetailsOpenDragProgress > 0f,
                     opened = showPlayerDetails,
                     openingDragProgress = playerDetailsOpenDragProgress,
+                    scrollToTopSignal = playerDetailsScrollToTopSignal,
                     state = playbackUiState,
                     timetableExpanded = showDetailsTimetable,
                     onToggleTimetable = { showDetailsTimetable = !showDetailsTimetable },
@@ -428,7 +451,7 @@ fun YarApp(
                     onSkipBack = { skipTimefree(-30_000L) },
                     onSkipForward = { skipTimefree(30_000L) },
                     onPlayLive = { playLive(it) },
-                    onTimefreeDateSelected = { station, date -> loadTimefreePrograms(station, date) },
+                    onTimefreeDateSelected = { station, date -> selectTimefreeDate(station, date) },
                     onPlayTimefree = { station, program -> playTimefree(station, program) },
                 )
             }

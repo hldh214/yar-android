@@ -213,7 +213,7 @@ class YarMediaLibraryService : MediaLibraryService() {
             .flatMap { it.stations.asSequence() }
             .firstOrNull { it.id == stationId }
             ?: return
-        val program = runCatching { client.getPrograms(stationId).firstOrNull { it.startTime == startTime } }.getOrNull()
+        val program = runCatching { client.getPrograms(stationId, startTime.take(8)).firstOrNull { it.startTime == startTime } }.getOrNull()
         val seekTime = addSecondsToRadikoTimestamp(startTime, seekSeconds)
         val stream = client.getTimefreeStream(stationId, startTime, endTime, seekTime)
         currentPlayback = CurrentPlayback.Timefree(

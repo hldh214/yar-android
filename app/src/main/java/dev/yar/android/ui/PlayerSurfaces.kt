@@ -78,6 +78,7 @@ internal data class PlaybackUiState(
     val timefreeDate: BroadcastDate,
     val timefreePrograms: List<Program>,
     val timefreeProgramsLoading: Boolean,
+    val timefreeLoadingDates: Set<String>,
     val isPlaying: Boolean,
     val isLive: Boolean,
     val positionMs: Long,
@@ -286,6 +287,7 @@ internal fun PlayerDetailsOverlay(
     visible: Boolean,
     opened: Boolean,
     openingDragProgress: Float,
+    scrollToTopSignal: Int,
     state: PlaybackUiState,
     timetableExpanded: Boolean,
     onToggleTimetable: () -> Unit,
@@ -354,6 +356,11 @@ internal fun PlayerDetailsOverlay(
                         dismissOffsetPx = 0f
                         return Velocity(0f, available.y)
                     }
+                }
+            }
+            LaunchedEffect(scrollToTopSignal) {
+                if (scrollToTopSignal > 0) {
+                    scrollState.animateScrollTo(0)
                 }
             }
 
@@ -467,7 +474,7 @@ private fun StationTimefreeSection(
             }
             TimefreeDateSelector(
                 selectedDate = state.timefreeDate,
-                loading = state.timefreeProgramsLoading,
+                loadingDates = state.timefreeLoadingDates,
                 enabled = switchingTarget == null,
                 onDateSelected = { onDateSelected(station, it) },
             )
@@ -504,7 +511,7 @@ private fun StationTimefreeSection(
 @Composable
 private fun TimefreeDateSelector(
     selectedDate: BroadcastDate,
-    loading: Boolean,
+    loadingDates: Set<String>,
     enabled: Boolean,
     onDateSelected: (BroadcastDate) -> Unit,
 ) {
@@ -514,7 +521,8 @@ private fun TimefreeDateSelector(
             TimefreeDateChip(
                 date = date,
                 selected = selected,
-                enabled = enabled && !loading && !selected,
+                loading = date.value in loadingDates,
+                enabled = enabled && !selected,
                 onClick = { onDateSelected(date) },
             )
         }
@@ -525,6 +533,7 @@ private fun TimefreeDateSelector(
 private fun TimefreeDateChip(
     date: BroadcastDate,
     selected: Boolean,
+    loading: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
@@ -539,12 +548,21 @@ private fun TimefreeDateChip(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = date.label,
-                color = if (selected) MaterialTheme.colorScheme.primary else MutedText,
-                fontWeight = FontWeight.SemiBold,
-                style = MaterialTheme.typography.labelMedium,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (loading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(12.dp),
+                        strokeWidth = 2.dp,
+                        color = if (selected) MaterialTheme.colorScheme.primary else MutedText,
+                    )
+                }
+                Text(
+                    text = date.label,
+                    color = if (selected) MaterialTheme.colorScheme.primary else MutedText,
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
         }
     }
 }
