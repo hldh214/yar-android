@@ -4,11 +4,13 @@ Native Android client for Yar, a third-party radiko player.
 
 Yar Android is built as a native Kotlin app, not a WebView wrapper. It focuses on stable background audio playback, system media controls, and a phone-first Compose UI for live and timefree listening.
 
+Download the latest APK from the [latest GitHub Release](https://github.com/hldh214/yar-android/releases/latest).
+
 ## Features
 
-- Native radiko station browsing grouped by region.
+- Station-first phone UI with recent stations, a compact region picker, and direct live playback from station rows.
 - Live HLS playback through Jetpack Media3 / ExoPlayer.
-- Timefree playback for recent programs, with seek and 30-second skip controls.
+- Timefree playback for recent programs from the current station, with date selection, seek, and 30-second skip controls.
 - Foreground media playback service with notification and lock-screen controls.
 - Recent stations persisted on device.
 - Current program artwork, metadata, and radiko Music song history when available.
@@ -43,7 +45,11 @@ app/build/outputs/apk/debug/app-debug.apk
 
 ## Release
 
-Current app version: `1.0.0`.
+Current Gradle app version: `1.0.1`.
+
+Latest tagged release in this repository: `v1.1.0`.
+
+Latest APK download page: [GitHub Releases latest](https://github.com/hldh214/yar-android/releases/latest).
 
 Release APKs are built by GitHub Actions when a `v*` tag is pushed or when a GitHub Release is published. The workflow attaches a signed APK named `yar-android-<tag>.apk` to the release.
 
@@ -60,9 +66,11 @@ Recommended release flow:
 
 1. Update `versionCode` and `versionName` in `app/build.gradle.kts`.
 2. Build locally with `./gradlew :app:assembleDebug` or `gradlew.bat :app:assembleDebug`.
-3. Tag the release, for example `v1.0.0`.
-4. Push the tag to GitHub.
-5. Confirm the `Android APK` workflow creates or updates the release asset.
+3. Update `CHANGELOG.md`.
+4. Tag the release, for example `v1.1.0`.
+5. Push the tag to GitHub.
+6. Confirm the `Android APK` workflow creates or updates the release asset.
+7. Confirm the [latest release page](https://github.com/hldh214/yar-android/releases/latest) points to the new version.
 
 ## Project Structure
 
